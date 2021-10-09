@@ -90,6 +90,12 @@ typedef struct svector {
 				  NULL. */
   double  factor;              /* Factor by which this feature vector
 				  is multiplied in the sum. */
+  double  *dense;              /* If non-zero, contains the same
+				  vector as words, but as a dense
+				  array. 
+				  NOTE: bounds of this array
+				  are not checked when later used! */
+  long size;                   /* Highest valid index in dense array */
 } SVECTOR;
 
 typedef struct doc {
@@ -206,6 +212,7 @@ typedef struct kernel_parm {
   MATRIX  *gram_matrix;  /* here one can directly supply the kernel
 			    matrix. The matrix is accessed if
 			    kernel_type=5 is selected. */
+  long    totwords;      /* highest valid feature index */
 } KERNEL_PARM;
 
 typedef struct model {
@@ -289,16 +296,24 @@ double classify_example(MODEL *, DOC *);
 double classify_example_linear(MODEL *, DOC *);
 double kernel(KERNEL_PARM *, DOC *, DOC *); 
 double kernel_s(KERNEL_PARM *kernel_parm, SVECTOR *a, SVECTOR *b);
+double single_kernel_s(KERNEL_PARM *kernel_parm, SVECTOR *a, SVECTOR *b);
 double single_kernel(KERNEL_PARM *, SVECTOR *, SVECTOR *); 
 double custom_kernel(KERNEL_PARM *, SVECTOR *, SVECTOR *); 
 SVECTOR *create_svector(WORD *, char *, double);
 SVECTOR *create_svector_shallow(WORD *, char *, double);
 SVECTOR *create_svector_n(double *, long, char *, double);
 SVECTOR *create_svector_n_r(double *, long, char *, double, double);
+SVECTOR *create_svector_nvector_n(double *nonsparsevec, long maxfeatnum, 
+				  char *userdefined, double factor);
 SVECTOR *copy_svector(SVECTOR *);
 SVECTOR *copy_svector_shallow(SVECTOR *);
 void   free_svector(SVECTOR *);
 void   free_svector_shallow(SVECTOR *);
+void   add_dense_vector_to_svector(SVECTOR *svec, long n);
+void   print_svector(SVECTOR *vec);
+long   num_nonzero_svector(SVECTOR *v);
+long   maxfeatnum_svector(SVECTOR *v);
+long   listlength_svector(SVECTOR *v);
 double    sprod_ss(SVECTOR *, SVECTOR *);
 SVECTOR*  sub_ss(SVECTOR *, SVECTOR *); 
 SVECTOR*  sub_ss_r(SVECTOR *, SVECTOR *, double min_non_zero); 
@@ -328,7 +343,9 @@ double model_length_n(MODEL *);
 void   mult_vector_ns(double *, SVECTOR *, double);
 void   add_vector_ns(double *, SVECTOR *, double);
 double sprod_ns(double *, SVECTOR *);
+double sprod_ns_boundcheck(double *vec_n, SVECTOR *vec_s, long n);
 void   add_weight_vector_to_linear_model(MODEL *);
+void   add_dense_vectors_to_model(MODEL *model);
 DOC    *create_example(long, long, long, double, SVECTOR *);
 void   free_example(DOC *, long);
 long   *random_order(long n);
@@ -336,21 +353,36 @@ void   print_percent_progress(long *progress, long maximum,
 			      long percentperdot, char *symbol);
 MATRIX *create_matrix(int n, int m);
 MATRIX *realloc_matrix(MATRIX *matrix, int n, int m);
-double *create_nvector(int n);
-void   clear_nvector(double *vec, long int n);
+double *create_nvector(long n);
+double *create_nvector_svector(SVECTOR *svec, long n);
+void   clear_nvector(double *vec, long n);
+double *copy_nvector(double *vec, long n);
 MATRIX *copy_matrix(MATRIX *matrix);
 void   free_matrix(MATRIX *matrix);
 void   free_nvector(double *vector);
 MATRIX *transpose_matrix(MATRIX *matrix);
 MATRIX *cholesky_matrix(MATRIX *A);
+MATRIX *cholesky_addcol_matrix(MATRIX *L,double *newcol);
 double *find_indep_subset_of_matrix(MATRIX *A, double epsilon);
+MATRIX *incomplete_cholesky(DOC **x,long n,long rank,double epsilon,
+			    KERNEL_PARM *kparm, long **index);
 MATRIX *invert_ltriangle_matrix(MATRIX *L);
+double *solve_psd_linear_system(MATRIX *A, double *v);
+double *solve_psd_linear_system_cholesky(MATRIX *L, double *v);
+void   smult_nvector(double *vec_n, long n, double faktor);
+void   multadd_nvector(double *a, double *b, double fa, double fb, long n);
+double sprod_nvector_nvector(double *a, double *b, long n);
+double quad_nvector_matrix(double *v, MATRIX *A);
 double *prod_nvector_matrix(double *v, MATRIX *A);
 double *prod_matrix_nvector(MATRIX *A, double *v);
 double *prod_nvector_ltmatrix(double *v, MATRIX *A);
 double *prod_ltmatrix_nvector(MATRIX *A, double *v);
 MATRIX *prod_matrix_matrix(MATRIX *A, MATRIX *B);
 void   print_matrix(MATRIX *matrix);
+void   print_nvector(double *vec, long n);
+double mean_nvector(double *vec, long n);
+double variance_nvector(double *vec, long n);
+double percentile_nvector(double *vec, long n, double percent);
 MODEL  *read_model(char *);
 MODEL  *copy_model(MODEL *);
 MODEL  *compact_linear_model(MODEL *model);

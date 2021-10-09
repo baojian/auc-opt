@@ -125,6 +125,14 @@ SAMPLE      read_struct_examples(char *file, STRUCT_LEARN_PARM *sparm)
   sample.n=1;
   sample.examples=examples;
 
+  if(sparm->preimage_method==9) {
+    for(i=0;i<n;i++) {
+      examples[0].x.doc[i]->fvec->next=copy_svector(examples[0].x.doc[i]->fvec);
+      examples[0].x.doc[i]->fvec->kernel_id=0;
+      examples[0].x.doc[i]->fvec->next->kernel_id=2;
+    }
+  }
+
   for(i=0;i<sample.examples[0].x.totdoc;i++) {
     length=1;
     if(sample.examples[0].y.class[i]>0) 
@@ -162,7 +170,7 @@ SAMPLE      read_struct_examples(char *file, STRUCT_LEARN_PARM *sparm)
   /* Remove all features with numbers larger than num_features, if
      num_features is set to a positive value. This is important for
      svm_struct_classify. */
-  if(sparm->num_features > 0) 
+  if((sparm->num_features > 0) && sparm->truncate_fvec)
     for(i=0;i<sample.examples[0].x.totdoc;i++)
       for(j=0;sample.examples[0].x.doc[i]->fvec->words[j].wnum;j++) 
 	if(sample.examples[0].x.doc[i]->fvec->words[j].wnum>sparm->num_features) {
@@ -218,7 +226,7 @@ void        init_struct_model(SAMPLE sample, STRUCTMODEL *sm,
      feature space in sizePsi. This is the maximum number of different
      weights that can be learned. Later, the weight vector w will
      contain the learned weights for the model. */
-  long   i,j,k,totwords=0, totdoc=0, totexp=0, nump=0, numn=0, new_size;
+  long   i,j,k,totwords=0,totdoc=0,totexp=0,nump=0,numn=0,new_size,*select;
   WORD   *words,*w;
   DOC    **orgdoc,**basis;
   double *dummy;
@@ -226,12 +234,17 @@ void        init_struct_model(SAMPLE sample, STRUCTMODEL *sm,
   double *indep,ii,weight;
 
   totdoc=sample.examples[0].x.totdoc;
+  if(sparm->sparse_kernel_method > 0) { /* use nystrom or inc cholesky */
+    sparm->sparse_kernel_type=kparm->kernel_type;
+  }
+  else
+    sparm->sparse_kernel_type=0;
   sm->sparse_kernel_type=sparm->sparse_kernel_type;
   sm->invL=NULL; 
   sm->expansion=NULL;
 
   /* When using sparse kernel approximation, this replaces the
-     original feature vector with the kernel values of the orgininal
+     original feature vector with the kernel values of the original
      feature vector and the expansion. */
   if(sm->sparse_kernel_type > 0) {
     kparm->kernel_type=sm->sparse_kernel_type;
@@ -249,77 +262,99 @@ void        init_struct_model(SAMPLE sample, STRUCTMODEL *sm,
       for(i=0;i<totdoc;i++) {
 	basis[i]=(DOC *)malloc(sizeof(DOC));
 	(*(basis[i]))=(*(sample.examples[0].x.doc[i]));
-	basis[i]->fvec=copy_svector(sample.examples[0].x.doc[i]->fvec);
+        basis[i]->fvec=copy_svector(sample.examples[0].x.doc[i]->fvec);
       }
       totexp=totdoc;
     }
-
-    /* determine examples to use in expansion: B */
-    if(struct_verbosity > 0) 
-      printf("Selecting basis functions for sparse kernel expansion..."); fflush(stdout);
     if(sparm->sparse_kernel_size > totexp) sparm->sparse_kernel_size=totexp;
-    sm->expansion=(DOC **)malloc(sizeof(DOC *)*totexp);
-    sm->expansion_size=0;
-    for(ii=0.5;ii<totexp;ii+=((double)totexp/sparm->sparse_kernel_size)) {
-      sm->expansion[sm->expansion_size]=(DOC *)malloc(sizeof(DOC));
-      (*(sm->expansion[sm->expansion_size]))=(*(basis[(long)ii]));
-      sm->expansion[sm->expansion_size]->fvec=copy_svector(basis[(long)ii]->fvec);
-      sm->expansion_size++;
+
+    /* determine basis functions to use in expansion: B */
+    if(sparm->sparse_kernel_method==1) { 
+      /* select expansion via random sampling */
+      if(struct_verbosity > 0) 
+	printf("Selecting random sample of basis functions..."); fflush(stdout);
+      sm->expansion=(DOC **)malloc(sizeof(DOC *)*totexp);
+      sm->expansion_size=0;
+      for(ii=0.5;ii<totexp;ii+=((double)totexp/sparm->sparse_kernel_size)) {
+	sm->expansion[sm->expansion_size]=(DOC *)malloc(sizeof(DOC));
+	(*(sm->expansion[sm->expansion_size]))=(*(basis[(long)ii]));
+	sm->expansion[sm->expansion_size]->fvec=copy_svector(basis[(long)ii]->fvec);
+	sm->expansion_size++;
+      }
+      if(struct_verbosity > 0) 
+	printf("done.\n");
+
+      /* Make sure they are all independent. If not, select independent
+	 subset. */
+      if(struct_verbosity > 0) 
+	printf("Finding independent subset of vectors..."); fflush(stdout);
+      G=create_matrix(sm->expansion_size,sm->expansion_size);
+      for(i=0;i<sm->expansion_size;i++) { /* need only upper triangle */
+	for(j=i;j<sm->expansion_size;j++) {
+	  G->element[i][j]=kernel(kparm,sm->expansion[i],sm->expansion[j]);
+	}
+      }
+      indep=find_indep_subset_of_matrix(G,0.000001);
+      free_matrix(G);
+      new_size=0;
+      for(i=0;i<sm->expansion_size;i++) {
+	if(indep[i] != 0) {
+	  sm->expansion[new_size]=sm->expansion[i];
+	  new_size++;
+	}
+	else {
+	  free_example(sm->expansion[i],1);
+	}
+      }
+      free_nvector(indep);
+      if(struct_verbosity>0) 
+	printf("found %ld of %ld...",new_size,sm->expansion_size);
+      sm->expansion_size=new_size;
+      if(struct_verbosity > 0) 
+	printf("done.\n");
+      
+      /* compute matrix B^T*B */
+      if(struct_verbosity > 0) 
+	printf("Computing Gram matrix for kernel expansion...");fflush(stdout);
+      G=create_matrix(sm->expansion_size,sm->expansion_size);
+      for(i=0;i<sm->expansion_size;i++) {/* need upper triangle for cholesky */
+	for(j=i;j<sm->expansion_size;j++) {
+	  G->element[i][j]=kernel(kparm,sm->expansion[i],sm->expansion[j]);
+	}
+      }
+      if(struct_verbosity > 0) 
+	printf("done.\n");
+      if(struct_verbosity > 0) 
+	printf("Computing Cholesky decomposition and inverting..."); fflush(stdout);
+      L=cholesky_matrix(G);
+      sm->invL=invert_ltriangle_matrix(L);
+      free_matrix(L);
+      free_matrix(G);
+      if(struct_verbosity > 0) 
+	printf("done.\n");
+    }
+    else if(sparm->sparse_kernel_method==2) { 
+      /* select expansion via incomplete cholesky */
+      if(struct_verbosity > 0) 
+	printf("Computing incomplete Cholesky decomposition..."); fflush(stdout);
+      L=incomplete_cholesky(basis,totexp,sparm->sparse_kernel_size,
+				 0.000001,kparm,&select);
+      sm->invL=invert_ltriangle_matrix(L);
+      free_matrix(L);
+      sm->expansion=(DOC **)malloc(sizeof(DOC *)*totexp);
+      sm->expansion_size=0;
+      for(i=0;select[i]>=0;i++) {
+	sm->expansion[sm->expansion_size]=(DOC *)malloc(sizeof(DOC));
+	(*(sm->expansion[sm->expansion_size]))=(*(basis[select[i]]));
+	sm->expansion[sm->expansion_size]->fvec=copy_svector(basis[select[i]]->fvec);
+	sm->expansion_size++;
+      }
+      if(struct_verbosity > 0) 
+	printf("done.\n");
     }
     for(i=0;i<totexp;i++) 
       free_example(basis[i],1);
     free(basis);
-    if(struct_verbosity > 0) 
-      printf("done.\n");
-
-    /* Make sure they are all independent. If not, select independent
-       subset. */
-    if(struct_verbosity > 0) 
-      printf("Finding independent subset of vectors..."); fflush(stdout);
-    G=create_matrix(sm->expansion_size,sm->expansion_size);
-    for(i=0;i<sm->expansion_size;i++) { /* need only upper triangle */
-      for(j=i;j<sm->expansion_size;j++) {
-	G->element[i][j]=kernel(kparm,sm->expansion[i],sm->expansion[j]);
-      }
-    }
-    indep=find_indep_subset_of_matrix(G,0.000001);
-    free_matrix(G);
-    new_size=0;
-    for(i=0;i<sm->expansion_size;i++) {
-      if(indep[i] != 0) {
-	sm->expansion[new_size]=sm->expansion[i];
-	new_size++;
-      }
-      else {
-	free_example(sm->expansion[i],1);
-      }
-    }
-    free_nvector(indep);
-    if(struct_verbosity>0) 
-      printf("found %ld of %ld...",new_size,sm->expansion_size);
-    sm->expansion_size=new_size;
-    if(struct_verbosity > 0) 
-      printf("done.\n");
-
-    /* compute matrix B^T*B */
-    if(struct_verbosity > 0) 
-      printf("Computing Gram matrix for kernel expansion..."); fflush(stdout);
-    G=create_matrix(sm->expansion_size,sm->expansion_size);
-    for(i=0;i<sm->expansion_size;i++) { /* need upper triangle for cholesky */
-      for(j=i;j<sm->expansion_size;j++) {
-	G->element[i][j]=kernel(kparm,sm->expansion[i],sm->expansion[j]);
-      }
-    }
-    if(struct_verbosity > 0) 
-      printf("done.\n");
-    if(struct_verbosity > 0) 
-      printf("Computing Cholesky decomposition and inverting..."); fflush(stdout);
-    L=cholesky_matrix(G);
-    sm->invL=invert_ltriangle_matrix(L);
-    free_matrix(L);
-    free_matrix(G);
-    if(struct_verbosity > 0) 
-      printf("done.\n");
 
     /* compute new features for each example x: B^T*x */
     if(struct_verbosity > 0) 
@@ -368,7 +403,7 @@ void        init_struct_model(SAMPLE sample, STRUCTMODEL *sm,
       if(totwords < w->wnum) 
 	totwords=w->wnum;
   sparm->num_features=totwords;
-  if(struct_verbosity>=0)
+  if(struct_verbosity>0)
     printf("Training set properties: %d features, %ld examples (%ld pos / %ld neg)\n",
 	   sparm->num_features,totdoc,nump,numn);
   sm->sizePsi=sparm->num_features;
@@ -1275,20 +1310,22 @@ void        print_struct_testing_stats(SAMPLE sample, STRUCTMODEL *sm,
      the function eval_prediction to accumulate the necessary
      statistics for each prediction. */
 
-  if(!teststats->test_data_unlabeled) {
-    printf("NOTE: The loss reported above is the percentage of errors. The zero/one-error\n");
-    printf("      is the multivariate zero/one-error regarding the whole prediction vector!\n");
-    printf("Accuracy : %5.2f\n",100-teststats->errorrate);
-    printf("Precision: %5.2f\n",teststats->precision);
-    printf("Recall   : %5.2f\n",teststats->recall);
-    printf("F1       : %5.2f\n",teststats->fone);
-    printf("PRBEP    : %5.2f\n",teststats->prbep);
-    printf("ROCArea  : %5.2f\n",teststats->rocarea);
-    printf("AvgPrec  : %5.2f\n",teststats->avgprec);
-  }
-  else {
-    printf("NOTE: %ld test examples are unlabeled, so performance cannot be computed. The\n",teststats->test_data_unlabeled);
-    printf("      loss and the error reported above may be inaccurate!\n");
+  if(0){
+      if(!teststats->test_data_unlabeled) {
+          printf("NOTE: The loss reported above is the percentage of errors. The zero/one-error\n");
+          printf("      is the multivariate zero/one-error regarding the whole prediction vector!\n");
+          printf("Accuracy : %5.2f\n",100-teststats->errorrate);
+          printf("Precision: %5.2f\n",teststats->precision);
+          printf("Recall   : %5.2f\n",teststats->recall);
+          printf("F1       : %5.2f\n",teststats->fone);
+          printf("PRBEP    : %5.2f\n",teststats->prbep);
+          printf("ROCArea  : %5.2f\n",teststats->rocarea);
+          printf("AvgPrec  : %5.2f\n",teststats->avgprec);
+      }
+      else {
+          printf("NOTE: %ld test examples are unlabeled, so performance cannot be computed. The\n",teststats->test_data_unlabeled);
+          printf("      loss and the error reported above may be inaccurate!\n");
+      }
   }
 }
 
@@ -1372,12 +1409,17 @@ STRUCTMODEL read_struct_model(char *file, STRUCT_LEARN_PARM *sparm)
   sparm->bias=0;
   sparm->bias_featurenum=0;
   sparm->num_features=sm.svm_model->totwords;
+  sparm->truncate_fvec=(sm.svm_model->kernel_parm.kernel_type==LINEAR);
+  if(sm.svm_model->kernel_parm.kernel_type == CUSTOM) /* double kernel */
+    sparm->preimage_method=9;
   sm.invL=NULL;
   sm.expansion=NULL;
   sm.expansion_size=0;
   sm.sparse_kernel_type=0;
   sm.w=sm.svm_model->lin_weights;
   sm.sizePsi=sm.svm_model->totwords;
+  if((sm.svm_model->kernel_parm.kernel_type!=LINEAR) && sparm->classify_dense)
+    add_dense_vectors_to_model(sm.svm_model);
   return(sm);
 }
 
@@ -1440,12 +1482,29 @@ void        print_struct_help()
   printf("                        Prec@k and Rec@k. 0 indicates to use (0.5 * #pos) for\n");
   printf("                        Prec@k and (2 * #pos) for Rec@k. #pos is the number of\n");
   printf("                        positive examples in the training set. (default 0)\n");
-  printf("         --t [0..]   -> Use sparse kernel expansion. Values like those for\n");
-  printf("                        normal kernel (i.e. option -t). (default 0)\n");
+  printf("         --t [0..]   -> Use a priori selection of basis for sparse kernel\n");
+  printf("                        training (must not use '-w 9'):\n");
+  printf("                        0: do not use a priori selection. (default)\n");
+  printf("                        1: sample basis vectors randomly from --f file.\n");
+  printf("                        2: incomplete Cholesky using vectors from --f option.\n");
+  printf("         --i [0..]   -> Use CPSP algorithm for sparse kernel training\n");
+  printf("                        (must use '-w 9'):\n");
+  printf("                        0: do not use CPSP algorithm from [3a].\n");
+  printf("                        1: CPSP using subset selection for preimages via\n");
+  printf("                           59/95 heuristic (see [3a])\n");
+  printf("                        2: CPSP using fixed point search (see [3a], RBF kernel\n");
+  printf("                           only) (default)\n");
+  /*  printf("                        3: stochastic fixed point search (RBF kernel only)\n"); */
+  printf("                        4: CPSP using fixed point search with starting point\n");
+  printf("                           via 59/95 heuristic (see [3a], RBF kernel only)\n");
   printf("         --k [0..]   -> Specifies the number of basis functions to use\n");
-  printf("                        for sparse kernel approximation. (default 500)\n");
+  printf("                        for sparse kernel approximation (both --t and --i).\n");
+  printf("                        (default 500)\n");
+  printf("         --r [0..]   -> Number of times to recompute the sparse kernel\n");
+  printf("                        approximation and restart the optimizer. (default 0)\n");
   printf("         --s [0,1]   -> Selects whether shrinking heuristic is used in the\n");
-  printf("                        custom algorithms for errorrate loss. (default 1)\n");
+  printf("                        custom algorithms for linear kernel and errorrate loss.\n");
+  printf("                        (default 1)\n");
   printf("         --f string  -> Specifies file that contains basis functions to use\n");
   printf("                        for sparse kernel approximation. (default training\n");
   printf("                        file)\n");
@@ -1461,11 +1520,14 @@ void        print_struct_help()
   printf("      c_light = c_perf*100/n for the 'Errorrate' loss function, where n is the\n");
   printf("      number of training examples.\n\n");
   printf("The algorithms implemented in SVM-perf are described in:\n");
-  printf("- T. Joachims, A Support Vector Method for Multivariate Performance Measures,\n");
-  printf("  Proceedings of the International Conference on Machine Learning (ICML), 2005.\n");
-  printf("- T. Joachims, Training Linear SVMs in Linear Time, Proceedings of the \n");
-  printf("  ACM Conference on Knowledge Discovery and Data Mining (KDD), 2006.\n");
-  printf("  -> Papers are available at http://www.joachims.org/\n\n");
+  printf("[1a] T. Joachims, A Support Vector Method for Multivariate Performance\n");
+  printf("     Measures, Proceedings of the International Conference on Machine Learning\n");
+  printf("     (ICML), 2005.\n");
+  printf("[2a] T. Joachims, Training Linear SVMs in Linear Time, Proceedings of the\n");
+  printf("     ACM Conference on Knowledge Discovery and Data Mining (KDD), 2006.\n");
+  printf("[3a] T. Joachims, Chun-Nam Yu, Sparse Kernel SVMs via Cutting-Plane Training,\n");
+  printf("     Proceedings of the European Conference on Machine Learning (ECML), 2009.\n");
+  printf("-> Papers are available at http://www.joachims.org/\n\n");
 }
 
 void         parse_struct_parameters(STRUCT_LEARN_PARM *sparm)
@@ -1476,20 +1538,26 @@ void         parse_struct_parameters(STRUCT_LEARN_PARM *sparm)
   sparm->bias=1;
   sparm->prec_rec_k_frac=0.0;
   sparm->sparse_kernel_type=LINEAR;
+  sparm->sparse_kernel_method=0;
   sparm->sparse_kernel_size=500;
+  sparm->preimage_method=2;
+  sparm->recompute_rset=0;
   sparm->shrinking=1;
   strcpy(sparm->sparse_kernel_file,"");
   /* set number of features to -1, indicating that it will be computed
      in init_struct_model() */
   sparm->num_features=-1;
+  sparm->truncate_fvec=0;
 
   for(i=0;(i<sparm->custom_argc) && ((sparm->custom_argv[i])[0] == '-');i++) {
     switch ((sparm->custom_argv[i])[2]) 
       { 
       case 'b': i++; sparm->bias=atof(sparm->custom_argv[i]); break;
       case 'p': i++; sparm->prec_rec_k_frac=atof(sparm->custom_argv[i]); break;
-      case 't': i++; sparm->sparse_kernel_type=atol(sparm->custom_argv[i]); break;
       case 'k': i++; sparm->sparse_kernel_size=atol(sparm->custom_argv[i]); break;
+      case 't': i++; sparm->sparse_kernel_method=atol(sparm->custom_argv[i]); break;
+      case 'i': i++; sparm->preimage_method=atol(sparm->custom_argv[i]); break;
+      case 'r': i++; sparm->recompute_rset=atol(sparm->custom_argv[i]); break;
       case 's': i++; sparm->shrinking=atol(sparm->custom_argv[i]); break;
       case 'f': i++; strcpy(sparm->sparse_kernel_file,sparm->custom_argv[i]); break;
       default: printf("\nUnrecognized option %s!\n\n",sparm->custom_argv[i]);
@@ -1502,12 +1570,19 @@ void         parse_struct_parameters(STRUCT_LEARN_PARM *sparm)
     printf("\nThe value of option --k must be greater then zero!\n\n");
     exit(0);
   }
+  if((sparm->sparse_kernel_method > 0) && (sparm->preimage_method > 0)) {
+    printf("\nYou cannot set both --i and --t to a non-zero value!\n\n");
+    exit(0);
+  }
 }
 
 void        print_struct_help_classify()
 {
   /* Prints a help text that is appended to the common help text of
      svm_struct_classify. */
+  printf("         --d [0,1]  -> use a dense vector representation when classifying\n");
+  printf("                       new examples with svm_perf_classify. This is faster,\n");
+  printf("                       but uses more memory. (default 1)\n");
 }
 
 void         parse_struct_parameters_classify(STRUCT_LEARN_PARM *sparm)
@@ -1516,10 +1591,12 @@ void         parse_struct_parameters_classify(STRUCT_LEARN_PARM *sparm)
      classification module */
   int i;
 
+  sparm->classify_dense=1;
+
   for(i=0;(i<sparm->custom_argc) && ((sparm->custom_argv[i])[0] == '-');i++) {
     switch ((sparm->custom_argv[i])[2]) 
       { 
-      /* case 'x': i++; strcpy(xvalue,sparm->custom_argv[i]); break; */
+      case 'd': i++; sparm->classify_dense=atof(sparm->custom_argv[i]); break;
       default: printf("\nUnrecognized option %s!\n\n",sparm->custom_argv[i]);
 	       exit(0);
       }

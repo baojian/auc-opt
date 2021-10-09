@@ -95,8 +95,19 @@ void remove_inactive_constraints(CONSTSET *cset, double *alpha,
 MATRIX *init_kernel_matrix(CONSTSET *cset, KERNEL_PARM *kparm); 
 MATRIX *update_kernel_matrix(MATRIX *matrix, int newpos, CONSTSET *cset,
 			     KERNEL_PARM *kparm);
-SVECTOR *find_reduced_set_approximation(SVECTOR *psi,long rsize,KERNEL_PARM *kparm);
- 
+/*
+SVECTOR *find_reduced_set_approximation(SVECTOR *psi,long rsize,KERNEL_PARM *kparm,STRUCTMODEL *sm);
+double *compute_expansion_coefficients(SVECTOR *psi,long rsize,SVECTOR **expansion,KERNEL_PARM *kparm);
+MATRIX *compute_kernel_matrix_rset(CONSTSET *rcset, KERNEL_PARM *kparm);
+CONSTSET *find_reduced_set_for_cset(CONSTSET *cset,long esize,KERNEL_PARM *kparm,STRUCTMODEL *sm);
+SVECTOR *compute_approx_given_expansion(MATRIX *A, double *b, SVECTOR **expansion, long rsize);
+void create_expansion_matrices(CONSTSET *cset, long size, SVECTOR **expansion, MATRIX **A, MATRIX **B, KERNEL_PARM *kparm);
+void update_expansion_matrices(CONSTSET *cset, long pos, long size, SVECTOR *new, SVECTOR **expansion, MATRIX *A, MATRIX *B, KERNEL_PARM *kparm);
+double solve_for_best_approx_in_expansion(MATRIX *A, MATRIX *B);
+double *evaluate_leave_one_out_objective(MATRIX *A, MATRIX *B);
+SVECTOR *find_preimage(SVECTOR *psi,SVECTOR *start,KERNEL_PARM *kparm);
+*/
+
 #endif
 
 

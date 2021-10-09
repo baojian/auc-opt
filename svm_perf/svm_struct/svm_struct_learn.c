@@ -43,7 +43,7 @@ void svm_learn_struct(SAMPLE sample, STRUCT_LEARN_PARM *sparm,
   double      margin=0;
   double      slack, *slacks, slacksum, ceps;
   double      dualitygap,modellength,alphasum;
-  long        sizePsi;
+  long        sizePsi,slacknum;
   double      *alpha=NULL;
   long        *alphahist=NULL,optcount=0,lastoptcount=0;
   CONSTSET    cset;
@@ -386,11 +386,13 @@ void svm_learn_struct(SAMPLE sample, STRUCT_LEARN_PARM *sparm,
 
   if(struct_verbosity>=1) {
     /**** compute sum of slacks ****/
-    /**** WARNING: If positivity constraints are used, then the
-	  maximum slack id is larger than what is allocated
-	  below ****/
-    slacks=(double *)my_malloc(sizeof(double)*(n+1));
-    for(i=0; i<=n; i++) { 
+    /* NOTE: this includes that slack of constraints that are added in
+       "init_struct_constraints" */
+    slacknum=0;
+    for(j=0;j<cset.m;j++) 
+      slacknum=MAX(slacknum,cset.lhs[j]->slackid+1);
+    slacks=(double *)my_malloc(sizeof(double)*slacknum);
+    for(i=0; i<slacknum; i++) { 
       slacks[i]=0;
     }
     if(sparm->slack_norm == 1) {
@@ -406,13 +408,16 @@ void svm_learn_struct(SAMPLE sample, STRUCT_LEARN_PARM *sparm,
 		   -sm->w[sizePsi+cset.lhs[j]->slackid-1]/(sqrt(2*svmCnorm))));
     }
     slacksum=0;
-    for(i=1; i<=n; i++)  
+    for(i=1; i<slacknum; i++)  
       slacksum+=slacks[i];
     free(slacks);
     alphasum=0;
     for(i=0; i<cset.m; i++)  
       alphasum+=alpha[i]*cset.rhs[i];
-    modellength=model_length_s(svmModel);
+    if(kparm->kernel_type == LINEAR)
+      modellength=model_length_n(svmModel);
+    else
+      modellength=model_length_s(svmModel);
     dualitygap=(0.5*modellength*modellength+svmCnorm*(slacksum+n*ceps))
                -(alphasum-0.5*modellength*modellength);
     
@@ -838,6 +843,9 @@ void svm_learn_struct_joint(SAMPLE sample, STRUCT_LEARN_PARM *sparm,
     printf("Final epsilon on KKT-Conditions: %.5f\n",
 	   MAX(svmModel->maxdiff,ceps));
 
+    /* WARNING: if constraints are added in "init_struct_constraints",
+       then the following is incorrect if one of those constraints has
+       non-zero slack */
     slack=0;
     for(j=0;j<cset.m;j++) 
       slack=MAX(slack,
@@ -940,7 +948,7 @@ void find_most_violated_constraint(SVECTOR **fydelta, double *rhs,
     /* exit(1); */
     /* continue; */
   }
-  
+
   /**** get psi(x,y) and psi(x,ybar) ****/
   if(struct_verbosity>=2) rt2=get_runtime();
   if(fycached)
@@ -1283,4 +1291,3 @@ double find_most_violated_joint_constraint_in_cache(CCACHE *ccache, double thres
 
   return(sumviol);
 }
-

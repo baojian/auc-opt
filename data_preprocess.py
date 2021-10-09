@@ -1,1315 +1,436 @@
 # -*- coding: utf-8 -*-
 import os
+import sys
+import time
 import numpy as np
+import pickle as pkl
+import multiprocessing
+from sklearn.model_selection import KFold
+from sklearn.manifold import TSNE
 from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import Normalizer
+from sklearn.preprocessing import MinMaxScaler
+from functools import reduce
 
-if os.uname()[1] == 'baojian-ThinkPad-T540p':
-    root_path = '/data/auc-logistic/'
-elif os.uname()[1] == 'pascal':
-    root_path = '/mnt/store2/baojian/data/auc-logistic/'
-elif os.uname()[1].endswith('.rit.albany.edu'):
-    root_path = '/network/rit/lab/ceashpc/bz383376/data/auc-logistic/'
+"""
+ecoli:          https://archive.ics.uci.edu/ml/datasets/Ecoli
+splice:         https://archive.ics.uci.edu/ml/datasets/Molecular+Biology+(Splice-junction+Gene+Sequences)
+breast_cancer:  https://www.csie.ntu.edu.tw/~cjlin/libsvmtools/datasets/binary.html#breast-cancer
+australian:     http://archive.ics.uci.edu/ml/datasets/statlog+(australian+credit+approval)
+ijcnn1:         https://www.csie.ntu.edu.tw/~cjlin/libsvmtools/datasets/binary.html
+german:         https://archive.ics.uci.edu/ml/datasets/statlog+(german+credit+data)
+pima:           https://archive.ics.uci.edu/ml/datasets/diabetes
+page_blocks:    https://archive.ics.uci.edu/ml/machine-learning-databases/page-blocks/
+pen_digits_0:   https://archive.ics.uci.edu/ml/datasets/Pen-Based+Recognition+of+Handwritten+Digits
+optical_digits_0:   https://archive.ics.uci.edu/ml/datasets/optical+recognition+of+handwritten+digits
+letter_a:           https://archive.ics.uci.edu/ml/datasets/Letter+Recognition
+yeast_cyt:          https://archive.ics.uci.edu/ml/datasets/Yeast
+spectf:             https://archive.ics.uci.edu/ml/datasets/Yeast
+ionosphere:         https://archive.ics.uci.edu/ml/datasets/ionosphere
+"""
 
 
-def _get_data(x_tr, y_tr, data_id, data_name, num_trials, split_ratio=5. / 6.):
-    np.random.seed(17)
-    # 1. data standardization.
+def get_data_path():
+    if os.uname()[1] == 'baojian-ThinkPad-T540p':
+        root_path = '/data/auc-logistic/'
+    elif os.uname()[1] == 'pascal':
+        root_path = '/mnt/store2/baojian/data/auc-logistic/'
+    elif os.uname()[1].endswith('.rit.albany.edu'):
+        root_path = '/network/rit/lab/ceashpc/bz383376/data/auc-logistic/'
+    else:
+        root_path = '/network/rit/lab/ceashpc/bz383376/data/auc-logistic/'
+    return root_path
+
+
+def get_real_data(dataset):
+    x_tr, y_tr = [], []
+    with open(get_data_path() + '%s/input_%s.txt' % (dataset, dataset)) as f:
+        for ind, each_line in enumerate(f.readlines()):
+            each_line = each_line.rstrip()
+            if each_line.startswith('#'):
+                continue
+            if ind == 1:
+                n, p = int(each_line.split(' ')[0]), int(each_line.split(' ')[1])
+                continue
+            items = each_line.split(' ')
+            indices = [int(_.split(':')[0]) for _ in items[:-1]]
+            vals = np.asarray([float(_.split(':')[1]) for _ in items[:-1]])
+            y_tr.append(int(float(items[-1])))
+            sample = np.zeros(p)
+            sample[indices] = vals
+            x_tr.append(sample)
+    return np.asarray(x_tr, dtype=np.float64), np.asarray(y_tr, dtype=np.float64)
+
+
+def get_tsne_data(dataset):
+    data = pkl.load(open(get_data_path() + '%s/t_sne_2d_%s.pkl' % (dataset, dataset), 'rb'))
+    if dataset == 'fourclass':
+        key = ('original', 50)
+    else:
+        key = ('standard', 50)
+    x_tr = data[key]['embeddings']
+    y_tr = data[key]['y_tr']
+    return np.asarray(x_tr), np.asarray(y_tr)
+
+
+def _get_data(x_tr, y_tr, data_name, num_trials, split_ratio, verbose):
     """
+    # 1. data standardization.
     https://sebastianraschka.com/Articles/2014_about_feature_scaling.html
+    https://datascience.stackexchange.com/questions/27615/should-we-apply-normalization-to-test-data-as-well
+    https://jamesmccaffrey.wordpress.com/2019/01/04/how-to-normalize-training-and-test-data-for-machine-learning/
+    https://sebastianraschka.com/faq/docs/scale-training-test.html
     sklearn.preprocessing.StandardScaler
     """
+    np.random.seed(17)
+    root_path = get_data_path()
     x_tr = np.asarray(x_tr, dtype=float)
     y_tr = np.asarray(y_tr, dtype=float)
     data = {'name': data_name,
-            'data_path': os.path.join(root_path, '%02d_%s/' % (data_id, data_name)),
+            'data_path': os.path.join(root_path, '%s/' % data_name),
             'p': len(x_tr[0]),
             'n': len(y_tr),
             'num_trials': num_trials,
-            'num_posi': len([_ for _ in y_tr if _ > 0]),
-            'num_nega': len([_ for _ in y_tr if _ < 0]),
-            # There is a data leaking, but in general, it will be okay.
-            'x_tr': StandardScaler().fit_transform(x_tr),
+            'num_posi': np.count_nonzero(y_tr > 0),
+            'num_nega': np.count_nonzero(y_tr < 0),
+            'x_tr': x_tr,
             'y_tr': y_tr}
     data['posi_ratio'] = float(data['num_posi']) / float(data['n'])
-    print('# of classes: %d' % len(np.unique(y_tr)))
-    print('# of samples: %d' % data['n'])
-    print('# of positive: %d' % data['num_posi'])
-    print('# of negative: %d' % data['num_nega'])
-    print('# of features: %d' % data['p'])
-    print('posi_ratio: %.5f' % data['posi_ratio'])
+    if verbose > 0:
+        print('# of classes: %d' % len(np.unique(y_tr)), end=' ')
+        print('# of samples: %d' % data['n'])
+        print('# of positive: %d' % data['num_posi'], end=' ')
+        print('# of negative: %d' % data['num_nega'])
+        print('# of features: %d' % data['p'], end=' ')
+        print('posi_ratio: %.5f' % data['posi_ratio'])
     # generate different trials of data
     for _ in range(num_trials):
-        all_indices = np.random.permutation(data['n'])
-        data['trial_%d_all_indices' % _] = np.asarray(all_indices, dtype=np.int32)
-        assert data['n'] == len(data['trial_%d_all_indices' % _])
-        tr_indices = all_indices[:int(len(all_indices) * split_ratio)]
-        data['trial_%d_tr_indices' % _] = np.asarray(tr_indices, dtype=np.int32)
-        te_indices = all_indices[int(len(all_indices) * split_ratio):]
-        data['trial_%d_te_indices' % _] = np.asarray(te_indices, dtype=np.int32)
-        n_tr = len(data['trial_%d_tr_indices' % _])
-        n_te = len(data['trial_%d_te_indices' % _])
-        assert data['n'] == (n_tr + n_te)
-    return data
-
-
-def data_preprocess_australian(num_trials):
-    """
-    Source: http://archive.ics.uci.edu/ml/datasets/statlog+(australian+credit+approval)
-    # of classes: 2
-    # of samples: 690
-    # of positive: 307
-    # of negative: 383
-    # of features: 14
-    :return:
-    """
-    x_tr, y_tr, features, p = [], [], dict(), 14
-    data_name, data_id = 'australian', 4
-    f_path = '%02d_%s/raw_%s' % (data_id, data_name, data_name)
-    with open(os.path.join(root_path, f_path)) as f:
-        for each_line in f.readlines():
-            items = each_line.lstrip().rstrip().split(' ')
-            values = np.asarray([float(_) for _ in items[:-1]], dtype=float)
-            y_tr.append(1 if int(items[-1]) == 1 else -1)
-            x_tr.append(values)
-    _get_data(x_tr=x_tr, y_tr=y_tr, data_id=data_id,
-              data_name=data_name, num_trials=num_trials, split_ratio=5. / 6.)
-
-
-def data_preprocess_breast_cancer(num_trials):
-    """
-    https://www.csie.ntu.edu.tw/~cjlin/libsvmtools/datasets/binary.html#breast-cancer
-    # of classes: 2
-    # of data: 683
-    # of features: 10
-    Note: 2 for benign, 4 for malignant
-    :return:
-    """
-    np.random.seed(17)
-    x_tr, y_tr, features, p = [], [], dict(), 10
-    data_name, data_id = 'breast_cancer', 6
-    f_path = '%02d_%s/raw_%s' % (data_id, data_name, data_name)
-    with open(os.path.join(root_path, f_path)) as f:
-        for each_line in f.readlines():
-            items = each_line.lstrip().rstrip().split(' ')
-            items = [_ for _ in items if len(_) != 0]
-            values = [float(_.split(':')[1]) for _ in items[1:]]
-            # 2 for benign, 4 for malignant
-            y_tr.append(1 if int(float(items[0])) == 4 else -1)
-            x_tr.append(np.asarray(values, dtype=float))
-    _get_data(x_tr=x_tr, y_tr=y_tr, data_id=data_id,
-              data_name=data_name, num_trials=num_trials, split_ratio=5. / 6.)
-
-
-def data_preprocess_splice(num_trials):
-    """
-    https://archive.ics.uci.edu/ml/datasets/Molecular+Biology+(Splice-junction+Gene+Sequences)
-    # of classes: 2
-    # of data: 3,175 (testing)
-    # of features: 60
-    # of posi: 1648
-    # of nega: 1527
-    :return:
-    """
-    np.random.seed(17)
-    x_tr, y_tr, features, p = [], [], dict(), 60
-    data_name, data_id = 'splice', 7
-    f_path = '%02d_%s/raw_%s' % (data_id, data_name, data_name)
-    with open(os.path.join(root_path, f_path)) as f:
-        for each_line in f.readlines():
-            items = each_line.lstrip().rstrip().split(' ')
-            indices = np.asarray([int(_.split(':')[0]) - 1 for _ in items[1:]], dtype=int)
-            values = np.asarray([float(_.split(':')[1]) for _ in items[1:]], dtype=float)
-            y_tr.append(int(items[0]))
-            sample = np.zeros(p)
-            sample[indices] = values
-            x_tr.append(sample)
-    _get_data(x_tr=x_tr, y_tr=y_tr, data_id=data_id,
-              data_name=data_name, num_trials=num_trials, split_ratio=5. / 6.)
-
-
-def data_preprocess_ijcnn1(num_trials):
-    """
-    https://www.csie.ntu.edu.tw/~cjlin/libsvmtools/datasets/binary.html
-    # of classes: 2
-    # of samples: 141691
-    # of positive: 13565
-    # of negative: 128126
-    # of features: 22
-    posi_ratio: 0.09574
-    """
-    np.random.seed(17)
-    x_tr, y_tr, features, p = [], [], dict(), 22
-    data_name, data_id = 'ijcnn1', 8
-    f_path = '%02d_%s/raw_%s' % (data_id, data_name, data_name)
-    with open(os.path.join(root_path, f_path)) as f:
-        for each_line in f.readlines():
-            items = each_line.lstrip().rstrip().split(' ')
-            indices = np.asarray([int(_.split(':')[0]) - 1 for _ in items[1:]], dtype=int)
-            values = np.asarray([float(_.split(':')[1]) for _ in items[1:]], dtype=float)
-            y_tr.append(int(items[0]))
-            sample = np.zeros(p)
-            sample[indices] = values
-            x_tr.append(sample)
-    _get_data(x_tr=x_tr, y_tr=y_tr, data_id=data_id,
-              data_name=data_name, num_trials=num_trials, split_ratio=5. / 6.)
-
-
-def data_preprocess_mushrooms(num_trials):
-    """
-    # of classes: 2
-    # of samples: 8124
-    # of positive: 3916
-    # of negative: 4208
-    # of features: 112
-    posi_ratio: 0.48203
-    :return:
-    """
-    np.random.seed(17)
-    x_tr, y_tr, features, p = [], [], dict(), 112
-    data_name, data_id = 'mushrooms', 9
-    f_path = '%02d_%s/raw_%s' % (data_id, data_name, data_name)
-    with open(os.path.join(root_path, f_path)) as f:
-        for each_line in f.readlines():
-            items = each_line.lstrip().rstrip().split(' ')
-            indices = np.asarray([int(_.split(':')[0]) - 1 for _ in items[1:]], dtype=int)
-            values = np.asarray([float(_.split(':')[1]) for _ in items[1:]], dtype=float)
-            y_tr.append(1 if int(items[0]) == 1 else -1)
-            sample = np.zeros(p)
-            sample[indices] = values
-            x_tr.append(sample)
-    _get_data(x_tr=x_tr, y_tr=y_tr, data_id=data_id,
-              data_name=data_name, num_trials=num_trials, split_ratio=5. / 6.)
-
-
-def data_preprocess_svmguide3(num_trials):
-    """
-    # of classes: 2
-    # of data: 1,243 / 41 (testing)
-    # of features: 20
-    Files:
-        svmguide3
-        svmguide3.t (testing)
-    :return:
-    """
-    np.random.seed(17)
-    x_tr, y_tr, features, p = [], [], dict(), 20
-    data_name, data_id = 'svmguide3', 10
-    f_path = '%02d_%s/raw_%s' % (data_id, data_name, data_name)
-    with open(os.path.join(root_path, f_path)) as f:
-        for each_line in f.readlines():
-            items = each_line.lstrip().rstrip().split(' ')
-            items = items[:-2]  # the last two are all zeros.
-            indices = np.asarray([int(_.split(':')[0]) - 1 for _ in items[1:]], dtype=int)
-            values = np.asarray([float(_.split(':')[1]) for _ in items[1:]], dtype=float)
-            y_tr.append(1 if int(items[0]) == 1 else -1)
-            sample = np.zeros(p)
-            sample[indices] = values
-            x_tr.append(sample)
-    data = {'name': 'svmguide3',
-            'data_path': os.path.join(root_path, '10_svmguide3'),
-            'p': p,
-            'n': len(y_tr),
-            'num_trials': num_trials,
-            'num_posi': len([_ for _ in y_tr if _ > 0]),
-            'num_nega': len([_ for _ in y_tr if _ < 0]),
-            'x_tr': np.asarray(x_tr, dtype=float),
-            'y_tr': np.asarray(y_tr, dtype=float)}
-    data['posi_ratio'] = float(data['num_posi']) / float(data['n'])
-    print('n: %03d' % data['n'])
-    print('p: %03d' % data['p'])
-    print('num_posi: %03d' % data['num_posi'])
-    print('num_nega: %03d' % data['num_nega'])
-    print('posi_ratio: %.5f' % data['posi_ratio'])
-    for _ in range(num_trials):
-        all_indices = np.random.permutation(data['n'])
-        data['trial_%d_all_indices' % _] = np.asarray(all_indices, dtype=np.int32)
-        assert data['n'] == len(data['trial_%d_all_indices' % _])
-        tr_indices = all_indices[:int(len(all_indices) * 5. / 6.)]
-        data['trial_%d_tr_indices' % _] = np.asarray(tr_indices, dtype=np.int32)
-        te_indices = all_indices[int(len(all_indices) * 5. / 6.):]
-        data['trial_%d_te_indices' % _] = np.asarray(te_indices, dtype=np.int32)
-        n_tr = len(data['trial_%d_tr_indices' % _])
-        n_te = len(data['trial_%d_te_indices' % _])
-        assert data['n'] == (n_tr + n_te)
-
-        if not os.path.exists(root_path + '10_svmguide3/svmguide3_tr_%03d.dat'):
-            f_tr = open(root_path + '10_svmguide3/svmguide3_tr_%03d.dat' % _, 'w')
-            f_te = open(root_path + '10_svmguide3/svmguide3_te_%03d.dat' % _, 'w')
-            for index in tr_indices:
-                values = data['x_tr'][index]
-                if data['y_tr'][index] == 1:
-                    f_tr.write(r'2 qid:1 ' + r' '.join([r'%d:%.f' % (ind, _)
-                                                        for ind, _ in zip(range(1, len(values) + 1), values)]))
-                else:
-                    f_tr.write(r'1 qid:1 ' + r' '.join([r'%d:%.f' % (ind, _)
-                                                        for ind, _ in zip(range(1, len(values) + 1), values)]))
-                f_tr.write('\n')
-            f_tr.close()
-            for index in te_indices:
-                values = data['x_tr'][index]
-                if data['y_tr'][index] == 1:
-                    f_te.write(r'2 qid:1 ' + r' '.join([r'%d:%.f' % (ind, _)
-                                                        for ind, _ in zip(range(1, len(values) + 1), values)]))
-                else:
-                    f_te.write(r'1 qid:1 ' + r' '.join([r'%d:%.f' % (ind, _)
-                                                        for ind, _ in zip(range(1, len(values) + 1), values)]))
-                f_te.write('\n')
-            f_te.close()
+        all_folds = dict()
+        # to make sure that there are least 2 positive samples in sub_y_tr and sub_y_te
+        k_fold, min_posi = 5, 2
+        while True:
+            all_indices = np.random.permutation(data['n'])
+            data['trial_%d_all_indices' % _] = np.asarray(all_indices, dtype=np.int32)
+            assert data['n'] == len(data['trial_%d_all_indices' % _])
+            tr_indices = all_indices[:int(len(all_indices) * split_ratio)]
+            data['trial_%d_tr_indices' % _] = np.asarray(tr_indices, dtype=np.int32)
+            te_indices = all_indices[int(len(all_indices) * split_ratio):]
+            data['trial_%d_te_indices' % _] = np.asarray(te_indices, dtype=np.int32)
+            n_tr = len(data['trial_%d_tr_indices' % _])
+            n_te = len(data['trial_%d_te_indices' % _])
+            assert data['n'] == (n_tr + n_te)
+            all_folds[_] = []
+            flag = True
+            kf = KFold(n_splits=k_fold, shuffle=False)  # Folding is fixed.
+            for ind, (sub_tr_ind, sub_te_ind) in \
+                    enumerate(kf.split(np.zeros(shape=(len(tr_indices), 1)))):
+                sub_y_tr = data['y_tr'][tr_indices[sub_tr_ind]]
+                sub_y_te = data['y_tr'][tr_indices[sub_te_ind]]
+                if len(np.unique(sub_y_tr)) == 1 or len(np.unique(sub_y_te)) == 1 or \
+                        len([_ for _ in sub_y_te if _ > 0]) < min_posi:
+                    flag = False
+                    break
+                all_folds[_].append([sub_y_tr, sub_y_te])
+            if flag:
+                break
+        if verbose > 0:
+            print('----')
+            for sub_y_tr, sub_y_te in all_folds[_]:
+                print('trial_%d' % _, 'sub_posi_tr: %d' % np.count_nonzero(sub_y_tr > 0),
+                      'sub_posi_te: %d' % np.count_nonzero(sub_y_te > 0),
+                      'posi_tr: %d' % np.count_nonzero(y_tr[tr_indices] > 0),
+                      'posi_te: %d' % np.count_nonzero(y_tr[te_indices] > 0))
 
     return data
 
 
-def data_preprocess_german(num_trials):
-    """
-    # of classes: 2
-    # of data: 1,000
-    # of features: 24
-    Files:
-        german.numer
-        german.numer_scale (scaled to [-1,1])
-    :return:
-    """
-    np.random.seed(17)
-    x_tr, y_tr, features, p = [], [], dict(), 24
-    with open(os.path.join(root_path, '11_german/german.numer_scale.txt')) as f:
-        for each_line in f.readlines():
-            items = each_line.lstrip().rstrip().split(' ')
-            indices = np.asarray([int(_.split(':')[0]) - 1 for _ in items[1:]], dtype=int)
-            values = np.asarray([float(_.split(':')[1]) for _ in items[1:]], dtype=float)
-            values /= np.linalg.norm(values)
-            y_tr.append(1 if int(items[0]) == 1 else -1)
-            sample = np.zeros(p)
-            sample[indices] = values
-            x_tr.append(sample)
-    data = {'name': 'german',
-            'data_path': os.path.join(root_path, '11_german/'),
-            'p': p,
-            'n': len(y_tr),
-            'num_trials': num_trials,
-            'num_posi': len([_ for _ in y_tr if _ > 0]),
-            'num_nega': len([_ for _ in y_tr if _ < 0]),
-            'x_tr': np.asarray(x_tr, dtype=float),
-            'y_tr': np.asarray(y_tr, dtype=float)}
-    data['posi_ratio'] = float(data['num_posi']) / float(data['n'])
-    print('n: %03d' % data['n'])
-    print('p: %03d' % data['p'])
-    print('num_posi: %03d' % data['num_posi'])
-    print('num_nega: %03d' % data['num_nega'])
-    print('posi_ratio: %.3f' % data['posi_ratio'])
-    for _ in range(num_trials):
-        all_indices = np.random.permutation(data['n'])
-        data['trial_%d_all_indices' % _] = np.asarray(all_indices, dtype=np.int32)
-        assert data['n'] == len(data['trial_%d_all_indices' % _])
-        tr_indices = all_indices[:int(len(all_indices) * 5. / 6.)]
-        data['trial_%d_tr_indices' % _] = np.asarray(tr_indices, dtype=np.int32)
-        te_indices = all_indices[int(len(all_indices) * 5. / 6.):]
-        data['trial_%d_te_indices' % _] = np.asarray(te_indices, dtype=np.int32)
-        n_tr = len(data['trial_%d_tr_indices' % _])
-        n_te = len(data['trial_%d_te_indices' % _])
-        assert data['n'] == (n_tr + n_te)
-
-        if not os.path.exists(root_path + '11_german/german_tr_%03d.dat'):
-            f_tr = open(root_path + '11_german/german_tr_%03d.dat' % _, 'w')
-            f_te = open(root_path + '11_german/german_te_%03d.dat' % _, 'w')
-            for index in tr_indices:
-                values = data['x_tr'][index]
-                if data['y_tr'][index] == 1:
-                    f_tr.write(r'2 qid:1 ' + r' '.join([r'%d:%.f' % (ind, _)
-                                                        for ind, _ in zip(range(1, len(values) + 1), values)]))
-                else:
-                    f_tr.write(r'1 qid:1 ' + r' '.join([r'%d:%.f' % (ind, _)
-                                                        for ind, _ in zip(range(1, len(values) + 1), values)]))
-                f_tr.write('\n')
-            f_tr.close()
-            for index in te_indices:
-                values = data['x_tr'][index]
-                if data['y_tr'][index] == 1:
-                    f_te.write(r'2 qid:1 ' + r' '.join([r'%d:%.f' % (ind, _)
-                                                        for ind, _ in zip(range(1, len(values) + 1), values)]))
-                else:
-                    f_te.write(r'1 qid:1 ' + r' '.join([r'%d:%.f' % (ind, _)
-                                                        for ind, _ in zip(range(1, len(values) + 1), values)]))
-                f_te.write('\n')
-            f_te.close()
-    return data
+def t_sne_2d(para):
+    data_name, model_name, data_x, data_y, perplexity, rand_state = para
+    start_time = time.time()
+    t_sne = TSNE(n_components=2, perplexity=perplexity, early_exaggeration=12.0, learning_rate=200.0,
+                 n_iter=5000, n_iter_without_progress=300, min_grad_norm=1e-7, metric="euclidean",
+                 init="random", verbose=0, random_state=rand_state, method='barnes_hut', angle=0.5,
+                 n_jobs=None)
+    t_sne.fit_transform(X=data_x, y=data_y)
+    print(model_name, perplexity, 'run_time', time.time() - start_time)
+    return {(model_name, perplexity): {
+        'data_name': data_name, 'x_tr': data_x, 'y_tr': data_y,
+        'rand_state': rand_state, 'embeddings': t_sne.embedding_,
+        't_sne_paras': {
+            'n_components': 2, 'perplexity': perplexity, 'early_exaggeration': 12.0,
+            'learning_rate': 200.0, 'n_iter': 5000, 'n_iter_without_progress': 300,
+            'min_grad_norm': 1e-7, 'metric': "euclidean", 'init': "random", 'verbose': 0,
+            'random_state': rand_state, 'method': 'barnes_hut', 'angle': 0.5, 'n_jobs': 'None'}}}
 
 
-def data_preprocess_fourclass(num_trials):
-    """
-    # of classes: 2
-    # of data: 862
-    # of features: 2
-    Files:
-        fourclass
-        fourclass_scale (scaled to [-1,1])
-    :return:
-    """
-    np.random.seed(17)
-    x_tr, y_tr, features, p = [], [], dict(), 2
-    with open(os.path.join(root_path, '12_fourclass/fourclass_scale.txt')) as f:
-        for each_line in f.readlines():
-            items = each_line.lstrip().rstrip().split(' ')
-            indices = np.asarray([int(_.split(':')[0]) - 1 for _ in items[1:]], dtype=int)
-            values = np.asarray([float(_.split(':')[1]) for _ in items[1:]], dtype=float)
-            values /= np.linalg.norm(values)
-            y_tr.append(1 if int(items[0]) == 1 else -1)
-            sample = np.zeros(p)
-            sample[indices] = values
-            x_tr.append(sample)
-    data = {'name': 'fourclass',
-            'data_path': os.path.join(root_path, '12_fourclass/'),
-            'p': p,
-            'n': len(y_tr),
-            'num_trials': num_trials,
-            'num_posi': len([_ for _ in y_tr if _ > 0]),
-            'num_nega': len([_ for _ in y_tr if _ < 0]),
-            'x_tr': np.asarray(x_tr, dtype=float),
-            'y_tr': np.asarray(y_tr, dtype=float)}
-    data['posi_ratio'] = float(data['num_posi']) / float(data['n'])
-    print('n: %03d' % data['n'])
-    print('p: %03d' % data['p'])
-    print('num_posi: %03d' % data['num_posi'])
-    print('num_nega: %03d' % data['num_nega'])
-    print('posi_ratio: %.5f' % data['posi_ratio'])
-    for _ in range(num_trials):
-        all_indices = np.random.permutation(data['n'])
-        data['trial_%d_all_indices' % _] = np.asarray(all_indices, dtype=np.int32)
-        assert data['n'] == len(data['trial_%d_all_indices' % _])
-        tr_indices = all_indices[:int(len(all_indices) * 5. / 6.)]
-        data['trial_%d_tr_indices' % _] = np.asarray(tr_indices, dtype=np.int32)
-        te_indices = all_indices[int(len(all_indices) * 5. / 6.):]
-        data['trial_%d_te_indices' % _] = np.asarray(te_indices, dtype=np.int32)
-        n_tr = len(data['trial_%d_tr_indices' % _])
-        n_te = len(data['trial_%d_te_indices' % _])
-        assert data['n'] == (n_tr + n_te)
-    return data
+def run_single_tsne(dataset):
+    x_tr, y_tr = get_real_data(dataset=dataset)
+    rand_state = 17
+    para_space = []
+    for model_name, model in zip(
+            ['original', 'norm', 'min_max', 'standard'],
+            [None, Normalizer(norm='l2'), MinMaxScaler(feature_range=(-1., 1.)), StandardScaler()]):
+        if model is not None:
+            x_tr = model.fit_transform(X=x_tr)
+        for perplexity in [10, 20, 30, 40, 50]:
+            para_space.append((dataset, model_name, x_tr, y_tr, perplexity, rand_state))
+    pool = multiprocessing.Pool(processes=len(para_space))
+    results_pool = pool.map(t_sne_2d, para_space)
+    pool.close()
+    pool.join()
+    results = dict()
+    for item in results_pool:
+        for key in item:
+            results[key] = item[key]
+    pkl.dump(results, open(get_data_path() + '%s/t_sne_2d_%s.pkl' % (dataset, dataset), 'wb'))
 
 
-def data_preprocess_a9a(num_trials):
-    """
-    # of classes: 2
-    # of data: 32,561 / 16,281 (testing)
-    # of features: 123 / 123 (testing)
-    Files:
-        a9a
-        a9a.t (testing)
-    :return:
-    """
-    np.random.seed(17)
-    x_tr, y_tr, features, p = [], [], dict(), 123
-    with open(os.path.join(root_path, '13_a9a/raw_a9a')) as f:
-        for each_line in f.readlines():
-            items = each_line.lstrip().rstrip().split(' ')
-            indices = np.asarray([int(_.split(':')[0]) - 1 for _ in items[1:]], dtype=int)
-            values = np.asarray([float(_.split(':')[1]) for _ in items[1:]], dtype=float)
-            values /= np.linalg.norm(values)
-            y_tr.append(1 if int(items[0]) == 1 else -1)
-            sample = np.zeros(p)
-            sample[indices] = values
-            x_tr.append(sample)
-    data = {'name': 'a9a',
-            'data_path': os.path.join(root_path, '13_a9a/'),
-            'p': p,
-            'n': len(y_tr),
-            'num_trials': num_trials,
-            'num_posi': len([_ for _ in y_tr if _ > 0]),
-            'num_nega': len([_ for _ in y_tr if _ < 0]),
-            'x_tr': np.asarray(x_tr, dtype=float),
-            'y_tr': np.asarray(y_tr, dtype=float)}
-    xx = np.sum(data['x_tr'], axis=0)
-    print(np.count_nonzero(data['x_tr'][:, -1]))
-    print(xx)
-
-    data['posi_ratio'] = float(data['num_posi']) / float(data['n'])
-    print('n: %03d' % data['n'])
-    print('p: %03d' % data['p'])
-    print('num_posi: %03d' % data['num_posi'])
-    print('num_nega: %03d' % data['num_nega'])
-    print('posi_ratio: %.5f' % data['posi_ratio'])
-    for _ in range(num_trials):
-        all_indices = np.random.permutation(data['n'])
-        data['trial_%d_all_indices' % _] = np.asarray(all_indices, dtype=np.int32)
-        assert data['n'] == len(data['trial_%d_all_indices' % _])
-        tr_indices = all_indices[:int(len(all_indices) * 5. / 6.)]
-        data['trial_%d_tr_indices' % _] = np.asarray(tr_indices, dtype=np.int32)
-        te_indices = all_indices[int(len(all_indices) * 5. / 6.):]
-        data['trial_%d_te_indices' % _] = np.asarray(te_indices, dtype=np.int32)
-        n_tr = len(data['trial_%d_tr_indices' % _])
-        n_te = len(data['trial_%d_te_indices' % _])
-        assert data['n'] == (n_tr + n_te)
-    return data
+def draw_t_sne(data_name):
+    import matplotlib.pyplot as plt
+    data = pkl.load(open(get_data_path() + '%s/t_sne_2d_%s.pkl'
+                         % (data_name, data_name), 'rb'))
+    fig, ax = plt.subplots(4, 5, figsize=(15, 12))
+    for ind_model, model_name in enumerate(['original', 'norm', 'min_max', 'standard']):
+        for ind, perplexity in enumerate([10, 20, 30, 40, 50]):
+            x_tr, y_tr = data[(model_name, perplexity)]['x_tr'], data[(model_name, perplexity)]['y_tr']
+            embeddings = data[(model_name, perplexity)]['embeddings']
+            ax[ind_model, ind].scatter(embeddings[np.argwhere(y_tr > 0), 0],
+                                       embeddings[np.argwhere(y_tr > 0), 1],
+                                       c='r', marker='o', facecolor='None', s=5.)
+            ax[ind_model, ind].scatter(embeddings[np.argwhere(y_tr < 0), 0],
+                                       embeddings[np.argwhere(y_tr < 0), 1],
+                                       c='b', marker='+', facecolor='None', s=5.)
+            ax[ind_model, ind].set_title('%s (per-%02d)' % (model_name, perplexity))
+    f_name = get_data_path() + '%s/t_sne_2d_%s.pdf' % (data_name, data_name)
+    plt.subplots_adjust(wspace=0.2, hspace=0.3)
+    fig.savefig(f_name, dpi=300, bbox_inches='tight', pad_inches=.1, format='pdf')
+    plt.close()
 
 
-def data_preprocess_w8a(num_trials):
-    """
-    # of classes: 2
-    # of data: 49,749 / 14,951 (testing)
-    # of features: 300 / 300 (testing)
-    Files:
-        w8a
-        w8a.t (testing)
-    """
-    np.random.seed(17)
-    x_tr, y_tr, features, p = [], [], dict(), 300
-    with open(os.path.join(root_path, '14_w8a/raw_w8a')) as f:
-        for each_line in f.readlines():
-            items = each_line.lstrip().rstrip().split(' ')
-            if len(items) == 1:  # we remove the zero vectors.
-                continue
-            indices = np.asarray([int(_.split(':')[0]) - 1 for _ in items[1:]], dtype=int)
-            values = np.asarray([float(_.split(':')[1]) for _ in items[1:]], dtype=float)
-            values /= np.linalg.norm(values)
-            y_tr.append(1 if int(items[0]) == 1 else -1)
-            sample = np.zeros(p)
-            sample[indices] = values
-            x_tr.append(sample)
-    data = {'name': 'w8a',
-            'data_path': os.path.join(root_path, '14_w8a/'),
-            'p': p,
-            'n': len(y_tr),
-            'num_trials': num_trials,
-            'num_posi': len([_ for _ in y_tr if _ > 0]),
-            'num_nega': len([_ for _ in y_tr if _ < 0]),
-            'x_tr': np.asarray(x_tr, dtype=float),
-            'y_tr': np.asarray(y_tr, dtype=float)}
-    data['posi_ratio'] = float(data['num_posi']) / float(data['n'])
-    print('n: %03d' % data['n'])
-    print('p: %03d' % data['p'])
-    print('num_posi: %03d' % data['num_posi'])
-    print('num_nega: %03d' % data['num_nega'])
-    print('posi_ratio: %.5f' % data['posi_ratio'])
-    for _ in range(num_trials):
-        all_indices = np.random.permutation(data['n'])
-        data['trial_%d_all_indices' % _] = np.asarray(all_indices, dtype=np.int32)
-        assert data['n'] == len(data['trial_%d_all_indices' % _])
-        tr_indices = all_indices[:int(len(all_indices) * 5. / 6.)]
-        data['trial_%d_tr_indices' % _] = np.asarray(tr_indices, dtype=np.int32)
-        te_indices = all_indices[int(len(all_indices) * 5. / 6.):]
-        data['trial_%d_te_indices' % _] = np.asarray(te_indices, dtype=np.int32)
-        n_tr = len(data['trial_%d_tr_indices' % _])
-        n_te = len(data['trial_%d_te_indices' % _])
-        assert data['n'] == (n_tr + n_te)
-    return data
+def get_data(dtype, dataset, num_trials, split_ratio, verbose=0):
+    if dataset == 'simu' or dataset == 'splice' or dataset == 'a9a' or dataset == 'breast_cancer' or \
+            dataset == 'banana' or dataset == 'ecoli_imu' or dataset == 'mushrooms' or dataset == 'australian' or \
+            dataset == 'spambase' or dataset == 'ionosphere' or dataset == 'fourclass' or \
+            dataset == 'german' or dataset == 'svmguide3' or dataset == 'spectf' or \
+            dataset == 'pen_digits_0' or dataset == 'page_blocks' or dataset == 'optical_digits_0' or \
+            dataset == 'w8a' or dataset == 'yeast_me1' or dataset == 'letter_a' or dataset == 'ijcnn1' or \
+            dataset == 'vowel_hid' or dataset == 'vehicle_bus' or dataset == 'vehicle_saab' or \
+            dataset == 'vehicle_van' or dataset == 'abalone_19' or dataset == 'seismic' or \
+            dataset == 'protein_homo' or dataset == 'mammography' or dataset == 'cardio_3' or \
+            dataset == 'ozone_level' or dataset == 'w7a' or dataset == 'yeast_me2' or \
+            dataset == 'letter_z' or dataset == 'wine_quality' or dataset == 'car_eval_4' or \
+            dataset == 'oil' or dataset == 'solar_flare_m0' or dataset == 'arrhythmia_06' or \
+            dataset == 'coil_2000' or dataset == 'thyroid_sick' or dataset == 'libras_move' or \
+            dataset == 'scene' or dataset == 'yeast_ml8' or dataset == 'yeast_cyt' or dataset == 'us_crime' or \
+            dataset == 'isolet' or dataset == 'car_eval_34' or dataset == 'spectrometer' or \
+            dataset == 'sick_euthyroid' or dataset == 'abalone_7' or dataset == 'pen_digits_5' or \
+            dataset == 'satimage_4' or dataset == 'optical_digits_8' or dataset == 'pima':  # 27
+        x_tr, y_tr = get_tsne_data(dataset=dataset) if dtype == 'tsne' else get_real_data(dataset=dataset)
+        return _get_data(x_tr, y_tr, dataset, num_trials, split_ratio, verbose=verbose)
+    else:
+        print('error of data %s' % dataset)
 
 
-def data_preprocess_covtype(num_trials):
-    """
-    # of classes: 2
-    # of data: 581,012
-    # of features: 54
-    Files:
-        covtype.libsvm.binary.bz2
-        covtype.libsvm.binary.scale.bz2 (scaled to [0,1])
-    """
-    np.random.seed(17)
-    x_tr, y_tr, features, p = [], [], dict(), 54
-    with open(os.path.join(root_path, '15_covtype/covtype.libsvm.binary.scale')) as f:
-        for each_line in f.readlines():
-            items = each_line.lstrip().rstrip().split(' ')
-            indices = np.asarray([int(_.split(':')[0]) - 1 for _ in items[1:]], dtype=int)
-            values = np.asarray([float(_.split(':')[1]) for _ in items[1:]], dtype=float)
-            values /= np.linalg.norm(values)
-            y_tr.append(1 if int(items[0]) == 1 else -1)
-            sample = np.zeros(p)
-            sample[indices] = values
-            x_tr.append(sample)
-    data = {'name': 'covtype',
-            'data_path': os.path.join(root_path, '15_covtype/'),
-            'p': p,
-            'n': len(y_tr),
-            'num_trials': num_trials,
-            'num_posi': len([_ for _ in y_tr if _ > 0]),
-            'num_nega': len([_ for _ in y_tr if _ < 0]),
-            'x_tr': np.asarray(x_tr, dtype=float),
-            'y_tr': np.asarray(y_tr, dtype=float)}
-    data['posi_ratio'] = float(data['num_posi']) / float(data['n'])
-    print('n: %03d' % data['n'])
-    print('p: %03d' % data['p'])
-    print('num_posi: %03d' % data['num_posi'])
-    print('num_nega: %03d' % data['num_nega'])
-    print('posi_ratio: %.3f' % data['posi_ratio'])
-    for _ in range(num_trials):
-        all_indices = np.random.permutation(data['n'])
-        data['trial_%d_all_indices' % _] = np.asarray(all_indices, dtype=np.int32)
-        assert data['n'] == len(data['trial_%d_all_indices' % _])
-        tr_indices = all_indices[:int(len(all_indices) * 5. / 6.)]
-        data['trial_%d_tr_indices' % _] = np.asarray(tr_indices, dtype=np.int32)
-        te_indices = all_indices[int(len(all_indices) * 5. / 6.):]
-        data['trial_%d_te_indices' % _] = np.asarray(te_indices, dtype=np.int32)
-        n_tr = len(data['trial_%d_tr_indices' % _])
-        n_te = len(data['trial_%d_te_indices' % _])
-        assert data['n'] == (n_tr + n_te)
-    return data
+def fetch_imbalance_dataset(dataset, num_trials, split_ratio, verbose):
+    from imblearn.datasets import fetch_datasets
+    protein_homo = fetch_datasets()[dataset]
+    x_tr, y_tr = protein_homo['data'], protein_homo['target']
+    print(np.count_nonzero(y_tr > 0), x_tr.shape)
+    return _get_data(x_tr=x_tr, y_tr=y_tr, data_name=dataset,
+                     num_trials=num_trials, split_ratio=split_ratio, verbose=verbose)
 
 
-def data_preprocess_spambase(num_trials):
-    """
-    # of classes: 2
-    # of data: 4,601
-    # of features: 57
-    Files:
-        spambase.
-    """
-    np.random.seed(17)
-    x_tr, y_tr, features, p = [], [], dict(), 57
-    with open(os.path.join(root_path, '16_spambase/spambase.data')) as f:
-        for each_line in f.readlines():
+def fetched_data():
+    from imblearn.datasets import fetch_datasets
+    data_set = 'ecoli'
+    data = fetch_datasets()[data_set]
+    x_tr, y_tr = data['data'], data['target']
+    if not os.path.exists('/data/auc-logistic/%s/' % data_set):
+        os.mkdir('/data/auc-logistic/%s/' % data_set)
+    f_w = open('/data/auc-logistic/%s/raw_%s' % (data_set, data_set), 'w')
+    f_w.write(str(len(x_tr)) + ' ' + str(len(x_tr[0])) + '\n')
+    for sample, label in zip(x_tr, y_tr):
+        for ind, val in zip(range(len(sample)), sample):
+            f_w.write(str(ind) + ':' + str(val) + ' ')
+        f_w.write(str(label) + '\n')
+    f_w.close()
+
+
+def generate_seismic():
+    from sklearn.preprocessing import OneHotEncoder
+    from itertools import product
+    x_tr, y_tr = [], []
+    data_name = 'seismic'
+    f_path = '%s/raw_%s_old' % (data_name, data_name)
+    cat_x_tr, num_x_tr = [], []
+    with open(os.path.join(get_data_path(), f_path)) as f:
+        for ind, each_line in enumerate(f.readlines()):
             items = each_line.lstrip().rstrip().split(',')
-            values = np.asarray([float(_) for _ in items[:-1]], dtype=float)
-            values /= np.linalg.norm(values)
-            y_tr.append(1 if int(items[-1]) == 1 else -1)
-            sample = values
-            x_tr.append(sample)
-    data = {'name': 'spambase',
-            'data_path': os.path.join(root_path, '16_spambase/'),
-            'p': p,
-            'n': len(y_tr),
-            'num_trials': num_trials,
-            'num_posi': len([_ for _ in y_tr if _ > 0]),
-            'num_nega': len([_ for _ in y_tr if _ < 0]),
-            'x_tr': np.asarray(x_tr, dtype=float),
-            'y_tr': np.asarray(y_tr, dtype=float)}
-    data['posi_ratio'] = float(data['num_posi']) / float(data['n'])
-    print('n: %03d' % data['n'])
-    print('p: %03d' % data['p'])
-    print('num_posi: %03d' % data['num_posi'])
-    print('num_nega: %03d' % data['num_nega'])
-    print('posi_ratio: %.5f' % data['posi_ratio'])
-    for _ in range(num_trials):
-        all_indices = np.random.permutation(data['n'])
-        data['trial_%d_all_indices' % _] = np.asarray(all_indices, dtype=np.int32)
-        assert data['n'] == len(data['trial_%d_all_indices' % _])
-        tr_indices = all_indices[:int(len(all_indices) * 5. / 6.)]
-        data['trial_%d_tr_indices' % _] = np.asarray(tr_indices, dtype=np.int32)
-        te_indices = all_indices[int(len(all_indices) * 5. / 6.):]
-        data['trial_%d_te_indices' % _] = np.asarray(te_indices, dtype=np.int32)
-        n_tr = len(data['trial_%d_tr_indices' % _])
-        n_te = len(data['trial_%d_te_indices' % _])
-        assert data['n'] == (n_tr + n_te)
-    return data
+            x_tr.append([_ for _ in items[:-1]])
+            cat_x_tr.append([items[0], items[1], items[2], items[3]])
+            num_x_tr.append([_ for ind, _ in enumerate(x_tr[-1]) if ind not in [0, 1, 2, 7]])
+            y_tr.append(1 if items[-1] == '1' else -1)
+    enc = OneHotEncoder(handle_unknown='ignore')
+    x = []
+    for (a, b, c, d) in product(np.unique([_[0] for _ in x_tr]),
+                                np.unique([_[1] for _ in x_tr]),
+                                np.unique([_[2] for _ in x_tr]),
+                                np.unique([_[7] for _ in x_tr])):
+        x.append([a, b, c, d])
+    enc.fit(x)
+    cat_x_tr = enc.transform(cat_x_tr).toarray()
+    x_tr = []
+    for item1, item2 in zip(cat_x_tr, num_x_tr):
+        line = [_ for _ in item1]
+        line.extend([float(_) for _ in item2])
+        x_tr.append(line)
+    x_tr, y_tr = np.asarray(x_tr), np.asarray(y_tr)
+    f_w = open('/data/auc-logistic/%s/raw_%s' % (data_name, data_name), 'w')
+    f_w.write(str(len(x_tr)) + ' ' + str(len(x_tr[0])) + '\n')
+    for sample, label in zip(x_tr, y_tr):
+        for ind, val in zip(range(len(sample)), sample):
+            f_w.write(str(ind) + ':' + str(val) + ' ')
+        f_w.write(str(label) + '\n')
+    f_w.close()
+    print(np.count_nonzero(y_tr > 0), x_tr.shape)
 
 
-def data_preprocess_yeast(num_trials):
-    """
-    https://archive.ics.uci.edu/ml/datasets/Yeast
-    # of classes: 10 classes ['MIT', 'NUC', 'CYT', 'ME1', 'EXC', 'ME2', 'ME3', 'VAC', 'POX', 'ERL']
-    # of data: 1,484
-    # of features: 8 (Numerical)
-    # select ['ME1'] as the positive class
-    """
-    np.random.seed(17)
-    x_tr, y_tr, features, p, data_id, data_name = [], [], dict(), 8, 17, 'yeast'
-    with open(os.path.join(root_path, '%02d_%s/raw_%s' % (data_id, data_name, data_name))) as f:
-        for each_line in f.readlines():
-            items = each_line.lstrip().rstrip().split(' ')
-            items = [_.lstrip().rstrip() for _ in items if len(_) != 0]
-            values = np.asarray([float(_) for _ in items[1:-1]], dtype=float)
-            x_tr.append(values / np.linalg.norm(values))  # CYT ME1 ME2- ME3 NUC
-            y_tr.append(1 if items[-1] == 'ME1' else -1)
-            features[items[-1]] = ''
-    data = {'name': data_name,
-            'data_path': os.path.join(root_path, '%02d_%s/' % (data_id, data_name)),
-            'p': p,
-            'n': len(y_tr),
-            'num_trials': num_trials,
-            'num_posi': len([_ for _ in y_tr if _ > 0]),
-            'num_nega': len([_ for _ in y_tr if _ < 0]),
-            'x_tr': np.asarray(x_tr, dtype=float),
-            'y_tr': np.asarray(y_tr, dtype=float)}
-    data['posi_ratio'] = float(data['num_posi']) / float(data['n'])
-    print('n: %05d' % data['n'])
-    print('p: %03d' % data['p'])
-    print('num_posi: %03d' % data['num_posi'])
-    print('num_nega: %03d' % data['num_nega'])
-    print('posi_ratio: %.5f' % data['posi_ratio'])
-    for _ in range(num_trials):
-        all_indices = np.random.permutation(data['n'])
-        data['trial_%d_all_indices' % _] = np.asarray(all_indices, dtype=np.int32)
-        assert data['n'] == len(data['trial_%d_all_indices' % _])
-        tr_indices = all_indices[:int(len(all_indices) * 5. / 6.)]
-        data['trial_%d_tr_indices' % _] = np.asarray(tr_indices, dtype=np.int32)
-        te_indices = all_indices[int(len(all_indices) * 5. / 6.):]
-        data['trial_%d_te_indices' % _] = np.asarray(te_indices, dtype=np.int32)
-        n_tr = len(data['trial_%d_tr_indices' % _])
-        n_te = len(data['trial_%d_te_indices' % _])
-        if not os.path.exists(root_path + '%02d_%s/%s_tr_%03d.dat' % (data_id, data_name, data_name, _)):
-            f_tr = open(root_path + '%02d_%s/%s_tr_%03d.dat' % (data_id, data_name, data_name, _), 'w')
-            f_te = open(root_path + '%02d_%s/%s_te_%03d.dat' % (data_id, data_name, data_name, _), 'w')
-            for index in tr_indices:
-                values = data['x_tr'][index]
-                if data['y_tr'][index] == 1:
-                    items = [r'%d:%.6f' % (ind, _) for ind, _ in zip(range(1, len(values) + 1), values)]
-                    f_tr.write(r'2 qid:1 ' + r' '.join(items))
-                else:
-                    items = [r'%d:%.6f' % (ind, _) for ind, _ in zip(range(1, len(values) + 1), values)]
-                    f_tr.write(r'1 qid:1 ' + r' '.join(items))
-                f_tr.write('\n')
-            f_tr.close()
-            for index in te_indices:
-                values = data['x_tr'][index]
-                if data['y_tr'][index] == 1:
-                    items = [r'%d:%.6f' % (ind, _) for ind, _ in zip(range(1, len(values) + 1), values)]
-                    f_te.write(r'2 qid:1 ' + r' '.join(items))
-                else:
-                    items = [r'%d:%.6f' % (ind, _) for ind, _ in zip(range(1, len(values) + 1), values)]
-                    f_te.write(r'1 qid:1 ' + r' '.join(items))
-                f_te.write('\n')
-            f_te.close()
-        assert data['n'] == (n_tr + n_te)
-    return data
+def re_name():
+    import sys
+    dataset = sys.argv[1]
+    for method in ['rank_boost', 'adaboost', 'c_svm', 'b_c_svm', 'lr', 'b_lr', 'rf', 'b_rf', 'gb',
+                   'spam', 'spauc', 'svm_perf_lin', 'rbf_svm', 'b_rbf_svm', 'svm_perf_rbf']:
+        os.rename(get_data_path() + '%s/results_pen_digits_%s.pkl' % (dataset, method),
+                  get_data_path() + '%s/results_real_pen_digits_0_%s.pkl' % (dataset, method))
 
 
-def data_preprocess_pima(num_trials):
-    """
-    https://archive.ics.uci.edu/ml/datasets/diabetes
-    # of classes: 2
-    # of data: 768
-    # of features: 8
-    """
-    x_tr, y_tr, features, p, data_id, data_name = [], [], dict(), 8, 18, 'pima'
-    with open(os.path.join(root_path, '%02d_%s/raw_%s' % (data_id, data_name, data_name))) as f:
-        for each_line in f.readlines():
-            if each_line.startswith('Preg'):
-                continue
-            items = each_line.lstrip().rstrip().split(',')
-            items = [_.lstrip().rstrip() for _ in items if len(_) != 0]
-            values = np.asarray([float(_) for _ in items[:-1]], dtype=float)
-            x_tr.append(values / np.linalg.norm(values))
-            y_tr.append(-1 if items[-1] == '0' else 1)
-    data = {'name': data_name,
-            'data_path': os.path.join(root_path, '%02d_%s/' % (data_id, data_name)),
-            'p': p,
-            'n': len(y_tr),
-            'num_trials': num_trials,
-            'num_posi': len([_ for _ in y_tr if _ > 0]),
-            'num_nega': len([_ for _ in y_tr if _ < 0]),
-            'x_tr': np.asarray(x_tr, dtype=float),
-            'y_tr': np.asarray(y_tr, dtype=float)}
-    data['posi_ratio'] = float(data['num_posi']) / float(data['n'])
-    print('n: %05d' % data['n'])
-    print('p: %03d' % data['p'])
-    print('num_posi: %03d' % data['num_posi'])
-    print('num_nega: %03d' % data['num_nega'])
-    print('posi_ratio: %.5f' % data['posi_ratio'])
-    for _ in range(num_trials):
-        all_indices = np.random.permutation(data['n'])
-        data['trial_%d_all_indices' % _] = np.asarray(all_indices, dtype=np.int32)
-        assert data['n'] == len(data['trial_%d_all_indices' % _])
-        tr_indices = all_indices[:int(len(all_indices) * 5. / 6.)]
-        data['trial_%d_tr_indices' % _] = np.asarray(tr_indices, dtype=np.int32)
-        te_indices = all_indices[int(len(all_indices) * 5. / 6.):]
-        data['trial_%d_te_indices' % _] = np.asarray(te_indices, dtype=np.int32)
-        n_tr = len(data['trial_%d_tr_indices' % _])
-        n_te = len(data['trial_%d_te_indices' % _])
-        if not os.path.exists(root_path + '%02d_%s/%s_tr_%03d.dat' % (data_id, data_name, data_name, _)):
-            f_tr = open(root_path + '%02d_%s/%s_tr_%03d.dat' % (data_id, data_name, data_name, _), 'w')
-            f_te = open(root_path + '%02d_%s/%s_te_%03d.dat' % (data_id, data_name, data_name, _), 'w')
-            for index in tr_indices:
-                values = data['x_tr'][index]
-                if data['y_tr'][index] == 1:
-                    items = [r'%d:%.6f' % (ind, _) for ind, _ in zip(range(1, len(values) + 1), values)]
-                    f_tr.write(r'2 qid:1 ' + r' '.join(items))
-                else:
-                    items = [r'%d:%.6f' % (ind, _) for ind, _ in zip(range(1, len(values) + 1), values)]
-                    f_tr.write(r'1 qid:1 ' + r' '.join(items))
-                f_tr.write('\n')
-            f_tr.close()
-            for index in te_indices:
-                values = data['x_tr'][index]
-                if data['y_tr'][index] == 1:
-                    items = [r'%d:%.6f' % (ind, _) for ind, _ in zip(range(1, len(values) + 1), values)]
-                    f_te.write(r'2 qid:1 ' + r' '.join(items))
-                else:
-                    items = [r'%d:%.6f' % (ind, _) for ind, _ in zip(range(1, len(values) + 1), values)]
-                    f_te.write(r'1 qid:1 ' + r' '.join(items))
-                f_te.write('\n')
-            f_te.close()
-        assert data['n'] == (n_tr + n_te)
-    return data
-
-
-def data_preprocess_page_blocks(num_trials):
-    """
-    https://archive.ics.uci.edu/ml/machine-learning-databases/page-blocks/
-    # of classes: 5 [1,2,3,4,5]
-    # of data: 5,473
-    # of features: 10 (Numerical)
-    # select [2,3,4,5] as the positive class
-    """
-    np.random.seed(17)
-    x_tr, y_tr, features, p, data_id, data_name = [], [], dict(), 10, 19, 'page_blocks'
-    with open(os.path.join(root_path, '%02d_%s/raw_%s' % (data_id, data_name, data_name))) as f:
-        for each_line in f.readlines():
-            items = each_line.lstrip().rstrip().split(' ')
-            items = [_.lstrip().rstrip() for _ in items if len(_) != 0]
-            values = np.asarray([float(_) for _ in items[:-1]], dtype=float)
-            x_tr.append(values / np.linalg.norm(values))
-            y_tr.append(-1 if items[-1] == '1' else 1)
-    data = {'name': data_name,
-            'data_path': os.path.join(root_path, '%02d_%s/' % (data_id, data_name)),
-            'p': p,
-            'n': len(y_tr),
-            'num_trials': num_trials,
-            'num_posi': len([_ for _ in y_tr if _ > 0]),
-            'num_nega': len([_ for _ in y_tr if _ < 0]),
-            'x_tr': np.asarray(x_tr, dtype=float),
-            'y_tr': np.asarray(y_tr, dtype=float)}
-    data['posi_ratio'] = float(data['num_posi']) / float(data['n'])
-    print('n: %05d' % data['n'])
-    print('p: %03d' % data['p'])
-    print('num_posi: %03d' % data['num_posi'])
-    print('num_nega: %03d' % data['num_nega'])
-    print('posi_ratio: %.5f' % data['posi_ratio'])
-    for _ in range(num_trials):
-        all_indices = np.random.permutation(data['n'])
-        data['trial_%d_all_indices' % _] = np.asarray(all_indices, dtype=np.int32)
-        assert data['n'] == len(data['trial_%d_all_indices' % _])
-        tr_indices = all_indices[:int(len(all_indices) * 5. / 6.)]
-        data['trial_%d_tr_indices' % _] = np.asarray(tr_indices, dtype=np.int32)
-        te_indices = all_indices[int(len(all_indices) * 5. / 6.):]
-        data['trial_%d_te_indices' % _] = np.asarray(te_indices, dtype=np.int32)
-        n_tr = len(data['trial_%d_tr_indices' % _])
-        n_te = len(data['trial_%d_te_indices' % _])
-        if not os.path.exists(root_path + '%02d_%s/%s_tr_%03d.dat' % (data_id, data_name, data_name, _)):
-            f_tr = open(root_path + '%02d_%s/%s_tr_%03d.dat' % (data_id, data_name, data_name, _), 'w')
-            f_te = open(root_path + '%02d_%s/%s_te_%03d.dat' % (data_id, data_name, data_name, _), 'w')
-            for index in tr_indices:
-                values = data['x_tr'][index]
-                if data['y_tr'][index] == 1:
-                    items = [r'%d:%.6f' % (ind, _) for ind, _ in zip(range(1, len(values) + 1), values)]
-                    f_tr.write(r'2 qid:1 ' + r' '.join(items))
-                else:
-                    items = [r'%d:%.6f' % (ind, _) for ind, _ in zip(range(1, len(values) + 1), values)]
-                    f_tr.write(r'1 qid:1 ' + r' '.join(items))
-                f_tr.write('\n')
-            f_tr.close()
-            for index in te_indices:
-                values = data['x_tr'][index]
-                if data['y_tr'][index] == 1:
-                    items = [r'%d:%.6f' % (ind, _) for ind, _ in zip(range(1, len(values) + 1), values)]
-                    f_te.write(r'2 qid:1 ' + r' '.join(items))
-                else:
-                    items = [r'%d:%.6f' % (ind, _) for ind, _ in zip(range(1, len(values) + 1), values)]
-                    f_te.write(r'1 qid:1 ' + r' '.join(items))
-                f_te.write('\n')
-            f_te.close()
-        assert data['n'] == (n_tr + n_te)
-    return data
-
-
-def data_preprocess_pendigits(num_trials):
-    """
-    https://archive.ics.uci.edu/ml/datasets/Pen-Based+Recognition+of+Handwritten+Digits
-    # of classes: 10 [0,1,2,...,9]
-    # of data: 10,992
-    # of features: 16
-    # select [0] as the positive class
-    """
-    np.random.seed(17)
-    x_tr, y_tr, features, p, data_id, data_name = [], [], dict(), 16, 20, 'pendigits'
-    with open(os.path.join(root_path, '%02d_%s/raw_%s' % (data_id, data_name, data_name))) as f:
-        for each_line in f.readlines():
-            items = each_line.lstrip().rstrip().split(',')
-            items = [_.lstrip().rstrip() for _ in items if len(_) != 0]
-            values = np.asarray([float(_) for _ in items[:-1]], dtype=float)
-            x_tr.append(values / np.linalg.norm(values))
-            y_tr.append(1 if items[-1] == '0' else -1)
-    data = {'name': data_name,
-            'data_path': os.path.join(root_path, '%02d_%s/' % (data_id, data_name)),
-            'p': p,
-            'n': len(y_tr),
-            'num_trials': num_trials,
-            'num_posi': len([_ for _ in y_tr if _ > 0]),
-            'num_nega': len([_ for _ in y_tr if _ < 0]),
-            'x_tr': np.asarray(x_tr, dtype=float),
-            'y_tr': np.asarray(y_tr, dtype=float)}
-    data['posi_ratio'] = float(data['num_posi']) / float(data['n'])
-    print('n: %05d' % data['n'])
-    print('p: %03d' % data['p'])
-    print('num_posi: %03d' % data['num_posi'])
-    print('num_nega: %03d' % data['num_nega'])
-    print('posi_ratio: %.5f' % data['posi_ratio'])
-    for _ in range(num_trials):
-        all_indices = np.random.permutation(data['n'])
-        data['trial_%d_all_indices' % _] = np.asarray(all_indices, dtype=np.int32)
-        assert data['n'] == len(data['trial_%d_all_indices' % _])
-        tr_indices = all_indices[:int(len(all_indices) * 5. / 6.)]
-        data['trial_%d_tr_indices' % _] = np.asarray(tr_indices, dtype=np.int32)
-        te_indices = all_indices[int(len(all_indices) * 5. / 6.):]
-        data['trial_%d_te_indices' % _] = np.asarray(te_indices, dtype=np.int32)
-        n_tr = len(data['trial_%d_tr_indices' % _])
-        n_te = len(data['trial_%d_te_indices' % _])
-        if not os.path.exists(root_path + '%02d_%s/%s_tr_%03d.dat' % (data_id, data_name, data_name, _)):
-            f_tr = open(root_path + '%02d_%s/%s_tr_%03d.dat' % (data_id, data_name, data_name, _), 'w')
-            f_te = open(root_path + '%02d_%s/%s_te_%03d.dat' % (data_id, data_name, data_name, _), 'w')
-            for index in tr_indices:
-                values = data['x_tr'][index]
-                if data['y_tr'][index] == 1:
-                    items = [r'%d:%.6f' % (ind, _) for ind, _ in zip(range(1, len(values) + 1), values)]
-                    f_tr.write(r'2 qid:1 ' + r' '.join(items))
-                else:
-                    items = [r'%d:%.6f' % (ind, _) for ind, _ in zip(range(1, len(values) + 1), values)]
-                    f_tr.write(r'1 qid:1 ' + r' '.join(items))
-                f_tr.write('\n')
-            f_tr.close()
-            for index in te_indices:
-                values = data['x_tr'][index]
-                if data['y_tr'][index] == 1:
-                    items = [r'%d:%.6f' % (ind, _) for ind, _ in zip(range(1, len(values) + 1), values)]
-                    f_te.write(r'2 qid:1 ' + r' '.join(items))
-                else:
-                    items = [r'%d:%.6f' % (ind, _) for ind, _ in zip(range(1, len(values) + 1), values)]
-                    f_te.write(r'1 qid:1 ' + r' '.join(items))
-                f_te.write('\n')
-            f_te.close()
-        assert data['n'] == (n_tr + n_te)
-    return data
-
-
-def data_preprocess_optdigits(num_trials):
-    """
-    https://archive.ics.uci.edu/ml/datasets/optical+recognition+of+handwritten+digits
-    # of classes: 10 [0,1,2,...,9]
-    # of data: 5,620
-    # of features: 64 (Numerical)
-    # select [0] as the positive class
-    """
-    np.random.seed(17)
-    x_tr, y_tr, features, p, data_id, data_name = [], [], dict(), 64, 21, 'optdigits'
-    with open(os.path.join(root_path, '%02d_%s/raw_%s' % (data_id, data_name, data_name))) as f:
-        for each_line in f.readlines():
-            items = each_line.lstrip().rstrip().split(',')
-            items = [_.lstrip().rstrip() for _ in items if len(_) != 0]
-            values = np.asarray([float(_) for _ in items[:-1]], dtype=float)
-            x_tr.append(values / np.linalg.norm(values))
-            y_tr.append(1 if items[-1] == '0' else -1)
-    data = {'name': data_name,
-            'data_path': os.path.join(root_path, '%02d_%s/' % (data_id, data_name)),
-            'p': p,
-            'n': len(y_tr),
-            'num_trials': num_trials,
-            'num_posi': len([_ for _ in y_tr if _ > 0]),
-            'num_nega': len([_ for _ in y_tr if _ < 0]),
-            'x_tr': np.asarray(x_tr, dtype=float),
-            'y_tr': np.asarray(y_tr, dtype=float)}
-    data['posi_ratio'] = float(data['num_posi']) / float(data['n'])
-    print('n: %05d' % data['n'])
-    print('p: %03d' % data['p'])
-    print('num_posi: %03d' % data['num_posi'])
-    print('num_nega: %03d' % data['num_nega'])
-    print('posi_ratio: %.5f' % data['posi_ratio'])
-    for _ in range(num_trials):
-        all_indices = np.random.permutation(data['n'])
-        data['trial_%d_all_indices' % _] = np.asarray(all_indices, dtype=np.int32)
-        assert data['n'] == len(data['trial_%d_all_indices' % _])
-        tr_indices = all_indices[:int(len(all_indices) * 5. / 6.)]
-        data['trial_%d_tr_indices' % _] = np.asarray(tr_indices, dtype=np.int32)
-        te_indices = all_indices[int(len(all_indices) * 5. / 6.):]
-        data['trial_%d_te_indices' % _] = np.asarray(te_indices, dtype=np.int32)
-        n_tr = len(data['trial_%d_tr_indices' % _])
-        n_te = len(data['trial_%d_te_indices' % _])
-        if not os.path.exists(root_path + '%02d_%s/%s_tr_%03d.dat' % (data_id, data_name, data_name, _)):
-            f_tr = open(root_path + '%02d_%s/%s_tr_%03d.dat' % (data_id, data_name, data_name, _), 'w')
-            f_te = open(root_path + '%02d_%s/%s_te_%03d.dat' % (data_id, data_name, data_name, _), 'w')
-            for index in tr_indices:
-                values = data['x_tr'][index]
-                if data['y_tr'][index] == 1:
-                    items = [r'%d:%.6f' % (ind, _) for ind, _ in zip(range(1, len(values) + 1), values)]
-                    f_tr.write(r'2 qid:1 ' + r' '.join(items))
-                else:
-                    items = [r'%d:%.6f' % (ind, _) for ind, _ in zip(range(1, len(values) + 1), values)]
-                    f_tr.write(r'1 qid:1 ' + r' '.join(items))
-                f_tr.write('\n')
-            f_tr.close()
-            for index in te_indices:
-                values = data['x_tr'][index]
-                if data['y_tr'][index] == 1:
-                    items = [r'%d:%.6f' % (ind, _) for ind, _ in zip(range(1, len(values) + 1), values)]
-                    f_te.write(r'2 qid:1 ' + r' '.join(items))
-                else:
-                    items = [r'%d:%.6f' % (ind, _) for ind, _ in zip(range(1, len(values) + 1), values)]
-                    f_te.write(r'1 qid:1 ' + r' '.join(items))
-                f_te.write('\n')
-            f_te.close()
-        assert data['n'] == (n_tr + n_te)
-    return data
-
-
-def data_preprocess_letter(num_trials):
-    """
-    https://archive.ics.uci.edu/ml/datasets/Letter+Recognition
-    # of classes: 26 [A,B,C,...,Z]
-    # of data: 20,000
-    # of features: 16 (Numerical)
-    # select [A] as the positive class
-    """
-    np.random.seed(17)
-    x_tr, y_tr, features, p, data_id, data_name = [], [], dict(), 16, 22, 'letter'
-    with open(os.path.join(root_path, '%02d_%s/raw_%s' % (data_id, data_name, data_name))) as f:
-        for each_line in f.readlines():
-            items = each_line.lstrip().rstrip().split(',')
-            items = [_.lstrip().rstrip() for _ in items if len(_) != 0]
-            values = np.asarray([float(_) for _ in items[1:]], dtype=float)
-            x_tr.append(values / np.linalg.norm(values))
-            y_tr.append(1 if items[0] == 'A' else -1)
-    data = {'name': data_name,
-            'data_path': os.path.join(root_path, '%02d_%s/' % (data_id, data_name)),
-            'p': p,
-            'n': len(y_tr),
-            'num_trials': num_trials,
-            'num_posi': len([_ for _ in y_tr if _ > 0]),
-            'num_nega': len([_ for _ in y_tr if _ < 0]),
-            'x_tr': np.asarray(x_tr, dtype=float),
-            'y_tr': np.asarray(y_tr, dtype=float)}
-    data['posi_ratio'] = float(data['num_posi']) / float(data['n'])
-    print('n: %05d' % data['n'])
-    print('p: %03d' % data['p'])
-    print('num_posi: %03d' % data['num_posi'])
-    print('num_nega: %03d' % data['num_nega'])
-    print('posi_ratio: %.5f' % data['posi_ratio'])
-    for _ in range(num_trials):
-        all_indices = np.random.permutation(data['n'])
-        data['trial_%d_all_indices' % _] = np.asarray(all_indices, dtype=np.int32)
-        assert data['n'] == len(data['trial_%d_all_indices' % _])
-        tr_indices = all_indices[:int(len(all_indices) * 5. / 6.)]
-        data['trial_%d_tr_indices' % _] = np.asarray(tr_indices, dtype=np.int32)
-        te_indices = all_indices[int(len(all_indices) * 5. / 6.):]
-        data['trial_%d_te_indices' % _] = np.asarray(te_indices, dtype=np.int32)
-        n_tr = len(data['trial_%d_tr_indices' % _])
-        n_te = len(data['trial_%d_te_indices' % _])
-        if not os.path.exists(root_path + '%02d_%s/%s_tr_%03d.dat' % (data_id, data_name, data_name, _)):
-            f_tr = open(root_path + '%02d_%s/%s_tr_%03d.dat' % (data_id, data_name, data_name, _), 'w')
-            f_te = open(root_path + '%02d_%s/%s_te_%03d.dat' % (data_id, data_name, data_name, _), 'w')
-            for index in tr_indices:
-                values = data['x_tr'][index]
-                if data['y_tr'][index] == 1:
-                    items = [r'%d:%.6f' % (ind, _) for ind, _ in zip(range(1, len(values) + 1), values)]
-                    f_tr.write(r'2 qid:1 ' + r' '.join(items))
-                else:
-                    items = [r'%d:%.6f' % (ind, _) for ind, _ in zip(range(1, len(values) + 1), values)]
-                    f_tr.write(r'1 qid:1 ' + r' '.join(items))
-                f_tr.write('\n')
-            f_tr.close()
-            for index in te_indices:
-                values = data['x_tr'][index]
-                if data['y_tr'][index] == 1:
-                    items = [r'%d:%.6f' % (ind, _) for ind, _ in zip(range(1, len(values) + 1), values)]
-                    f_te.write(r'2 qid:1 ' + r' '.join(items))
-                else:
-                    items = [r'%d:%.6f' % (ind, _) for ind, _ in zip(range(1, len(values) + 1), values)]
-                    f_te.write(r'1 qid:1 ' + r' '.join(items))
-                f_te.write('\n')
-            f_te.close()
-        assert data['n'] == (n_tr + n_te)
-    return data
-
-
-def data_preprocess_tic_tac(num_trials):
-    """
-    https://archive.ics.uci.edu/ml/datasets/Letter+Recognition
-    # of classes: 2 [A,B,C,...,Z]
-    # of data: 20,000
-    # of features: 16 (Numerical)
-    # select [A] as the positive class
-    """
-    np.random.seed(17)
-    x_tr, y_tr, features, p, data_id, data_name = [], [], dict(), 16, 22, 'letter'
-    with open(os.path.join(root_path, '%02d_%s/raw_%s' % (data_id, data_name, data_name))) as f:
-        for each_line in f.readlines():
-            items = each_line.lstrip().rstrip().split(',')
-            items = [_.lstrip().rstrip() for _ in items if len(_) != 0]
-            values = np.asarray([float(_) for _ in items[1:]], dtype=float)
-            x_tr.append(values / np.linalg.norm(values))
-            y_tr.append(1 if items[0] == 'A' else -1)
-    data = {'name': data_name,
-            'data_path': os.path.join(root_path, '%02d_%s/' % (data_id, data_name)),
-            'p': p,
-            'n': len(y_tr),
-            'num_trials': num_trials,
-            'num_posi': len([_ for _ in y_tr if _ > 0]),
-            'num_nega': len([_ for _ in y_tr if _ < 0]),
-            'x_tr': np.asarray(x_tr, dtype=float),
-            'y_tr': np.asarray(y_tr, dtype=float)}
-    data['posi_ratio'] = float(data['num_posi']) / float(data['n'])
-    print('n: %05d' % data['n'])
-    print('p: %03d' % data['p'])
-    print('num_posi: %03d' % data['num_posi'])
-    print('num_nega: %03d' % data['num_nega'])
-    print('posi_ratio: %.5f' % data['posi_ratio'])
-    for _ in range(num_trials):
-        all_indices = np.random.permutation(data['n'])
-        data['trial_%d_all_indices' % _] = np.asarray(all_indices, dtype=np.int32)
-        assert data['n'] == len(data['trial_%d_all_indices' % _])
-        tr_indices = all_indices[:int(len(all_indices) * 5. / 6.)]
-        data['trial_%d_tr_indices' % _] = np.asarray(tr_indices, dtype=np.int32)
-        te_indices = all_indices[int(len(all_indices) * 5. / 6.):]
-        data['trial_%d_te_indices' % _] = np.asarray(te_indices, dtype=np.int32)
-        n_tr = len(data['trial_%d_tr_indices' % _])
-        n_te = len(data['trial_%d_te_indices' % _])
-        if not os.path.exists(root_path + '%02d_%s/%s_tr_%03d.dat' % (data_id, data_name, data_name, _)):
-            f_tr = open(root_path + '%02d_%s/%s_tr_%03d.dat' % (data_id, data_name, data_name, _), 'w')
-            f_te = open(root_path + '%02d_%s/%s_te_%03d.dat' % (data_id, data_name, data_name, _), 'w')
-            for index in tr_indices:
-                values = data['x_tr'][index]
-                if data['y_tr'][index] == 1:
-                    items = [r'%d:%.6f' % (ind, _) for ind, _ in zip(range(1, len(values) + 1), values)]
-                    f_tr.write(r'2 qid:1 ' + r' '.join(items))
-                else:
-                    items = [r'%d:%.6f' % (ind, _) for ind, _ in zip(range(1, len(values) + 1), values)]
-                    f_tr.write(r'1 qid:1 ' + r' '.join(items))
-                f_tr.write('\n')
-            f_tr.close()
-            for index in te_indices:
-                values = data['x_tr'][index]
-                if data['y_tr'][index] == 1:
-                    items = [r'%d:%.6f' % (ind, _) for ind, _ in zip(range(1, len(values) + 1), values)]
-                    f_te.write(r'2 qid:1 ' + r' '.join(items))
-                else:
-                    items = [r'%d:%.6f' % (ind, _) for ind, _ in zip(range(1, len(values) + 1), values)]
-                    f_te.write(r'1 qid:1 ' + r' '.join(items))
-                f_te.write('\n')
-            f_te.close()
-        assert data['n'] == (n_tr + n_te)
-    return data
-
-
-def data_preprocess_yeast_cyt(num_trials):
-    """
-    https://archive.ics.uci.edu/ml/datasets/Yeast
-    # of classes: 10 classes ['MIT', 'NUC', 'CYT', 'ME1', 'EXC', 'ME2', 'ME3', 'VAC', 'POX', 'ERL']
-    # of data: 1,484
-    # of features: 8 (Numerical)
-    # select ['CYT'] as the positive class
-    """
-    np.random.seed(17)
-    x_tr, y_tr, features, p, data_id, data_name = [], [], dict(), 8, 24, 'yeast_cyt'
-    with open(os.path.join(root_path, '%02d_%s/raw_%s' % (data_id, data_name, data_name))) as f:
-        for each_line in f.readlines():
-            items = each_line.lstrip().rstrip().split(' ')
-            items = [_.lstrip().rstrip() for _ in items if len(_) != 0]
-            values = np.asarray([float(_) for _ in items[1:-1]], dtype=float)
-            x_tr.append(values / np.linalg.norm(values))  # CYT ME1 ME2- ME3 NUC
-            y_tr.append(1 if items[-1] == 'CYT' else -1)
-            features[items[-1]] = ''
-    data = {'name': data_name,
-            'data_path': os.path.join(root_path, '%02d_%s/' % (data_id, data_name)),
-            'p': p,
-            'n': len(y_tr),
-            'num_trials': num_trials,
-            'num_posi': len([_ for _ in y_tr if _ > 0]),
-            'num_nega': len([_ for _ in y_tr if _ < 0]),
-            'x_tr': np.asarray(x_tr, dtype=float),
-            'y_tr': np.asarray(y_tr, dtype=float)}
-    data['posi_ratio'] = float(data['num_posi']) / float(data['n'])
-    print('n: %05d' % data['n'])
-    print('p: %03d' % data['p'])
-    print('num_posi: %03d' % data['num_posi'])
-    print('num_nega: %03d' % data['num_nega'])
-    print('posi_ratio: %.5f' % data['posi_ratio'])
-    for _ in range(num_trials):
-        all_indices = np.random.permutation(data['n'])
-        data['trial_%d_all_indices' % _] = np.asarray(all_indices, dtype=np.int32)
-        assert data['n'] == len(data['trial_%d_all_indices' % _])
-        tr_indices = all_indices[:int(len(all_indices) * 5. / 6.)]
-        data['trial_%d_tr_indices' % _] = np.asarray(tr_indices, dtype=np.int32)
-        te_indices = all_indices[int(len(all_indices) * 5. / 6.):]
-        data['trial_%d_te_indices' % _] = np.asarray(te_indices, dtype=np.int32)
-        n_tr = len(data['trial_%d_tr_indices' % _])
-        n_te = len(data['trial_%d_te_indices' % _])
-        if not os.path.exists(root_path + '%02d_%s/%s_tr_%03d.dat' % (data_id, data_name, data_name, _)):
-            f_tr = open(root_path + '%02d_%s/%s_tr_%03d.dat' % (data_id, data_name, data_name, _), 'w')
-            f_te = open(root_path + '%02d_%s/%s_te_%03d.dat' % (data_id, data_name, data_name, _), 'w')
-            for index in tr_indices:
-                values = data['x_tr'][index]
-                if data['y_tr'][index] == 1:
-                    items = [r'%d:%.6f' % (ind, _) for ind, _ in zip(range(1, len(values) + 1), values)]
-                    f_tr.write(r'2 qid:1 ' + r' '.join(items))
-                else:
-                    items = [r'%d:%.6f' % (ind, _) for ind, _ in zip(range(1, len(values) + 1), values)]
-                    f_tr.write(r'1 qid:1 ' + r' '.join(items))
-                f_tr.write('\n')
-            f_tr.close()
-            for index in te_indices:
-                values = data['x_tr'][index]
-                if data['y_tr'][index] == 1:
-                    items = [r'%d:%.6f' % (ind, _) for ind, _ in zip(range(1, len(values) + 1), values)]
-                    f_te.write(r'2 qid:1 ' + r' '.join(items))
-                else:
-                    items = [r'%d:%.6f' % (ind, _) for ind, _ in zip(range(1, len(values) + 1), values)]
-                    f_te.write(r'1 qid:1 ' + r' '.join(items))
-                f_te.write('\n')
-            f_te.close()
-        assert data['n'] == (n_tr + n_te)
-    return data
-
-
-def data_preprocess_spectf(num_trials):
-    """
-    https://archive.ics.uci.edu/ml/datasets/Yeast
-    # of classes: 2 classes
-    # of data: 266
-    # of features: 44 (Numerical)
-    # select ['CYT'] as the positive class
-    """
-    np.random.seed(17)
-    x_tr, y_tr, features, p, data_id, data_name = [], [], dict(), 44, 25, 'spectf'
-    with open(os.path.join(root_path, '%02d_%s/raw_%s' % (data_id, data_name, data_name))) as f:
-        for each_line in f.readlines():
-            items = each_line.lstrip().rstrip().split(',')
-            items = [_.lstrip().rstrip() for _ in items if len(_) != 0]
-            values = [float(_) for _ in items[1:]]
-            x_tr.append(values / np.linalg.norm(values))
-            y_tr.append(1 if items[0] == '0' else -1)
-    data = {'name': data_name,
-            'data_path': os.path.join(root_path, '%02d_%s/' % (data_id, data_name)),
-            'p': p,
-            'n': len(y_tr),
-            'num_trials': num_trials,
-            'num_posi': len([_ for _ in y_tr if _ > 0]),
-            'num_nega': len([_ for _ in y_tr if _ < 0]),
-            'x_tr': np.asarray(x_tr, dtype=float),
-            'y_tr': np.asarray(y_tr, dtype=float)}
-    data['posi_ratio'] = float(data['num_posi']) / float(data['n'])
-    print('n: %05d' % data['n'])
-    print('p: %03d' % data['p'])
-    print('num_posi: %03d' % data['num_posi'])
-    print('num_nega: %03d' % data['num_nega'])
-    print('posi_ratio: %.5f' % data['posi_ratio'])
-    for _ in range(num_trials):
-        all_indices = np.random.permutation(data['n'])
-        data['trial_%d_all_indices' % _] = np.asarray(all_indices, dtype=np.int32)
-        assert data['n'] == len(data['trial_%d_all_indices' % _])
-        tr_indices = all_indices[:int(len(all_indices) * 5. / 6.)]
-        data['trial_%d_tr_indices' % _] = np.asarray(tr_indices, dtype=np.int32)
-        te_indices = all_indices[int(len(all_indices) * 5. / 6.):]
-        data['trial_%d_te_indices' % _] = np.asarray(te_indices, dtype=np.int32)
-        n_tr = len(data['trial_%d_tr_indices' % _])
-        n_te = len(data['trial_%d_te_indices' % _])
-        if not os.path.exists(root_path + '%02d_%s/%s_tr_%03d.dat' % (data_id, data_name, data_name, _)):
-            f_tr = open(root_path + '%02d_%s/%s_tr_%03d.dat' % (data_id, data_name, data_name, _), 'w')
-            f_te = open(root_path + '%02d_%s/%s_te_%03d.dat' % (data_id, data_name, data_name, _), 'w')
-            for index in tr_indices:
-                values = data['x_tr'][index]
-                if data['y_tr'][index] == 1:
-                    items = [r'%d:%.6f' % (ind, _) for ind, _ in zip(range(1, len(values) + 1), values)]
-                    f_tr.write(r'2 qid:1 ' + r' '.join(items))
-                else:
-                    items = [r'%d:%.6f' % (ind, _) for ind, _ in zip(range(1, len(values) + 1), values)]
-                    f_tr.write(r'1 qid:1 ' + r' '.join(items))
-                f_tr.write('\n')
-            f_tr.close()
-            for index in te_indices:
-                values = data['x_tr'][index]
-                if data['y_tr'][index] == 1:
-                    items = [r'%d:%.6f' % (ind, _) for ind, _ in zip(range(1, len(values) + 1), values)]
-                    f_te.write(r'2 qid:1 ' + r' '.join(items))
-                else:
-                    items = [r'%d:%.6f' % (ind, _) for ind, _ in zip(range(1, len(values) + 1), values)]
-                    f_te.write(r'1 qid:1 ' + r' '.join(items))
-                f_te.write('\n')
-            f_te.close()
-        assert data['n'] == (n_tr + n_te)
-    return data
-
-
-def data_preprocess_ionosphere(num_trials):
-    """
-    https://archive.ics.uci.edu/ml/datasets/ionosphere
-    # of classes: 2 classes
-    # of data: 351
-    # of features: 34 (Numerical)
-    # select 1 as the positive class
-    """
-    np.random.seed(17)
-    x_tr, y_tr, features, p, data_id, data_name = [], [], dict(), 34, 2, 'ionosphere'
-    with open(os.path.join(root_path, '%02d_%s/raw_%s' % (data_id, data_name, data_name))) as f:
-        for each_line in f.readlines():
-            items = each_line.lstrip().rstrip().split(',')
-            items = [_.lstrip().rstrip() for _ in items if len(_) != 0]
-            values = [float(_) for _ in items[:-1]]
-            x_tr.append(values / np.linalg.norm(values))
-            y_tr.append(1 if items[-1] == 'b' else -1)
-    data = {'name': data_name,
-            'data_path': os.path.join(root_path, '%02d_%s/' % (data_id, data_name)),
-            'p': p,
-            'n': len(y_tr),
-            'num_trials': num_trials,
-            'num_posi': len([_ for _ in y_tr if _ > 0]),
-            'num_nega': len([_ for _ in y_tr if _ < 0]),
-            'x_tr': np.asarray(x_tr, dtype=float),
-            'y_tr': np.asarray(y_tr, dtype=float)}
-    data['posi_ratio'] = float(data['num_posi']) / float(data['n'])
-    print('n: %05d' % data['n'])
-    print('p: %03d' % data['p'])
-    print('num_posi: %03d' % data['num_posi'])
-    print('num_nega: %03d' % data['num_nega'])
-    print('posi_ratio: %.5f' % data['posi_ratio'])
-    for _ in range(num_trials):
-        all_indices = np.random.permutation(data['n'])
-        data['trial_%d_all_indices' % _] = np.asarray(all_indices, dtype=np.int32)
-        assert data['n'] == len(data['trial_%d_all_indices' % _])
-        tr_indices = all_indices[:int(len(all_indices) * 5. / 6.)]
-        data['trial_%d_tr_indices' % _] = np.asarray(tr_indices, dtype=np.int32)
-        te_indices = all_indices[int(len(all_indices) * 5. / 6.):]
-        data['trial_%d_te_indices' % _] = np.asarray(te_indices, dtype=np.int32)
-        n_tr = len(data['trial_%d_tr_indices' % _])
-        n_te = len(data['trial_%d_te_indices' % _])
-        if not os.path.exists(root_path + '%02d_%s/%s_tr_%03d.dat' % (data_id, data_name, data_name, _)):
-            f_tr = open(root_path + '%02d_%s/%s_tr_%03d.dat' % (data_id, data_name, data_name, _), 'w')
-            f_te = open(root_path + '%02d_%s/%s_te_%03d.dat' % (data_id, data_name, data_name, _), 'w')
-            for index in tr_indices:
-                values = data['x_tr'][index]
-                if data['y_tr'][index] == 1:
-                    items = [r'%d:%.6f' % (ind, _) for ind, _ in zip(range(1, len(values) + 1), values)]
-                    f_tr.write(r'2 qid:1 ' + r' '.join(items))
-                else:
-                    items = [r'%d:%.6f' % (ind, _) for ind, _ in zip(range(1, len(values) + 1), values)]
-                    f_tr.write(r'1 qid:1 ' + r' '.join(items))
-                f_tr.write('\n')
-            f_tr.close()
-            for index in te_indices:
-                values = data['x_tr'][index]
-                if data['y_tr'][index] == 1:
-                    items = [r'%d:%.6f' % (ind, _) for ind, _ in zip(range(1, len(values) + 1), values)]
-                    f_te.write(r'2 qid:1 ' + r' '.join(items))
-                else:
-                    items = [r'%d:%.6f' % (ind, _) for ind, _ in zip(range(1, len(values) + 1), values)]
-                    f_te.write(r'1 qid:1 ' + r' '.join(items))
-                f_te.write('\n')
-            f_te.close()
-        assert data['n'] == (n_tr + n_te)
-    return data
+def print_datasets_table():
+    import matplotlib.pyplot as plt
+    plt.rcParams['text.usetex'] = True
+    plt.rc('text', usetex=True)
+    plt.rc('font', family='serif')
+    plt.rcParams['pdf.fonttype'] = 3
+    plt.rcParams['ps.fonttype'] = 3
+    plt.rcParams["font.size"] = 13
+    plt.rcParams['axes.linewidth'] = 0.4
+    plt.rcParams['axes.xmargin'] = 0
+    datasets = ['abalone_19', 'abalone_7', 'arrhythmia_06', 'australian', 'banana', 'breast_cancer',
+                'cardio_3', 'car_eval_34', 'car_eval_4', 'coil_2000', 'ecoli_imu', 'fourclass', 'german',
+                'ionosphere', 'isolet', 'letter_a', 'letter_z', 'libras_move', 'mammography',
+                'mushrooms', 'oil', 'optical_digits_0', 'optical_digits_8', 'ozone_level', 'page_blocks',
+                'pen_digits_0', 'pen_digits_5', 'pima', 'satimage_4', 'scene', 'seismic',
+                'sick_euthyroid', 'solar_flare_m0', 'spambase', 'spectf', 'spectrometer', 'splice',
+                'svmguide3', 'thyroid_sick', 'us_crime', 'vehicle_bus', 'vehicle_saab',
+                'vehicle_van', 'vowel_hid', 'w7a', 'wine_quality', 'yeast_cyt',
+                'yeast_me1', 'yeast_me2', 'yeast_ml8']
+    posit_ratio_list = [0.007661000718218817, 0.09360785252573617, 0.05530973451327434, 0.4449275362318841,
+                        0.4483018867924528, 0.34992679355783307, 0.08278457196613359, 0.0775462962962963,
+                        0.03761574074074074, 0.059661983302789656, 0.10416666666666667, 0.3561484918793503,
+                        0.3, 0.358974358974359, 0.07695267410542517, 0.03945,
+                        0.0367, 0.06666666666666667, 0.023249575248144506, 0.48202855736090594,
+                        0.04375667022411953, 0.09857651245551602, 0.09857651245551602, 0.028785488958990538,
+                        0.10232048236798831, 0.10398471615720524, 0.09597889374090247, 0.3489583333333333,
+                        0.09728049728049729, 0.07353552139592855, 0.06578947368421052, 0.09263357571925387,
+                        0.04895608351331893, 0.39404477287546186, 0.20599250936329588,
+                        0.0847457627118644, 0.5190551181102362, 0.26246105919003115, 0.0612407211028632,
+                        0.07522567703109329, 0.2576832151300236, 0.2565011820330969, 0.23522458628841608,
+                        0.09090909090909091, 0.028205865439907992, 0.03736218864842793, 0.3119946091644205,
+                        0.029649595687331536, 0.03436657681940701, 0.07364501448076127]
+    fig, ax = plt.subplots(1, 1, figsize=(3.5, 3))
+    plt.plot(range(1, len(posit_ratio_list) + 1), sorted(posit_ratio_list)[::-1],
+             color='tab:red', marker='o', markersize=3, markerfacecolor='white')
+    ax.set_ylabel("Positive Ratio $(\displaystyle \gamma )$", labelpad=.8)
+    ax.set_xticks([5, 10, 15, 20, 25, 30, 35, 40, 45])
+    ax.set_xlim([0, 51])
+    ax.grid(color='gray', linewidth=0.4, linestyle='--', dashes=(5, 5))
+    ax.set_xlabel('Dataset', labelpad=.8)
+    ax.tick_params(axis='y', direction='in', labelcolor='black', color='black', pad=1.)
+    ax.tick_params(axis='x', direction='in', labelcolor='black', color='black', pad=1.)
+    f_name = '/home/baojian/Dropbox/Apps/ShareLaTeX/auc-logistic/figs/posi-ratio.pdf'
+    plt.subplots_adjust(wspace=0.2, hspace=0.3)
+    fig.savefig(f_name, dpi=300, bbox_inches='tight', pad_inches=.01, format='pdf')
+    plt.close()
 
 
 def main():
-    data_preprocess_mushrooms(num_trials=100)
-    exit()
-    data_preprocess_ijcnn1(num_trials=100)
-    data_preprocess_splice(num_trials=100)
-    data_preprocess_breast_cancer(num_trials=100)
-    data_preprocess_australian(num_trials=100)
-    data_preprocess_ionosphere(num_trials=200)
-    data_preprocess_pima(num_trials=200)
-    data_preprocess_yeast_cyt(num_trials=200)
-    data_preprocess_tic_tac(num_trials=200)
-    data_preprocess_letter(num_trials=200)
-    data_preprocess_optdigits(num_trials=200)
-    data_preprocess_page_blocks(num_trials=200)
-    data_preprocess_pendigits(num_trials=200)
-    data_preprocess_page_blocks(num_trials=200)
-    data_preprocess_yeast(num_trials=200)
-    data_preprocess_spambase(num_trials=200)
-    data_preprocess_covtype(num_trials=200)
-    data_preprocess_w8a(num_trials=200)
-    data_preprocess_a9a(num_trials=200)
-    data_preprocess_fourclass(num_trials=200)
-    data_preprocess_german(num_trials=200)
-    data_preprocess_svmguide3(num_trials=200)
-    data_preprocess_australian(num_trials=200)
-    data_preprocess_breast_cancer(num_trials=200)
-    data_preprocess_splice(num_trials=200)
-    data_preprocess_ijcnn1(num_trials=200)
-    data_preprocess_mushrooms(num_trials=200)
+    if sys.argv[1] == 'get_data':
+        get_data(dtype='real', dataset=sys.argv[2], num_trials=1, split_ratio=0.5, verbose=1)
+    elif sys.argv[1] == 'print_table':
+        datasets = ['abalone_19', 'abalone_7', 'arrhythmia_06', 'australian', 'banana', 'breast_cancer',
+                    'cardio_3', 'car_eval_34', 'car_eval_4', 'coil_2000', 'ecoli_imu', 'fourclass', 'german',
+                    'ionosphere', 'isolet', 'letter_a', 'letter_z', 'libras_move', 'mammography',
+                    'mushrooms', 'oil', 'optical_digits_0', 'optical_digits_8', 'ozone_level', 'page_blocks',
+                    'pen_digits_0', 'pen_digits_5', 'pima', 'satimage_4', 'scene', 'seismic',
+                    'sick_euthyroid', 'solar_flare_m0', 'spambase', 'spectf', 'spectrometer', 'splice',
+                    'svmguide3', 'thyroid_sick', 'us_crime', 'vehicle_bus', 'vehicle_saab',
+                    'vehicle_van', 'vowel_hid', 'w7a', 'wine_quality', 'yeast_cyt',
+                    'yeast_me1', 'yeast_me2', 'yeast_ml8']
+        all_datasets = []
+        for dataset in datasets:
+            data = get_data(dtype='real', dataset=dataset, num_trials=1, split_ratio=.5)
+            all_datasets.append(
+                [data['posi_ratio'], '%s & %d & %d & %.4f' % (dataset, data['n'], data['p'], data['posi_ratio'])])
+        all_datasets.sort(reverse=True, key=lambda x: x[0])
+        for item1, item2 in zip(all_datasets[:25], all_datasets[25:]):
+            print(' & '.join([item1[1], item2[1]]))
+    elif sys.argv[1] == 'print_data':
+        print_datasets_table()
+    elif sys.argv[1] == 'tsne':
+        run_single_tsne(dataset=sys.argv[2])
+        draw_t_sne(data_name=sys.argv[2])
+    elif sys.argv[1] == 'pre_proc':
+        dataset = sys.argv[2]
+        f_w = open(get_data_path() + '%s/input_%s.txt' % (dataset, dataset), 'w')
+        f_w.write('# n p n_p n_q\n')
+        f_w.write('%d %d\n' % (1284, 22))
+        num_posi, num_nega = 0, 0
+        with open(get_data_path() + '%s/raw_svmguide3_data.txt' % dataset, 'r') as f:
+            for ind, each_line in enumerate(f.readlines()):
+                items = [_ for _ in each_line.rstrip().split(' ') if _ != '']
+                print(items)
+                for item in items[1:]:
+                    f_w.write('%d:%s ' % (int(item.split(':')[0]) - 1, item.split(':')[1]))
+                if items[0] == '-1':
+                    f_w.write('-1\n')
+                    num_nega += 1
+                else:
+                    f_w.write('1\n')
+                    num_posi += 1
+        print(num_posi, num_nega)
+        f_w.close()
+
+
+def draw_t_sne_10():
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(2, 5, figsize=(15, 6))
+    list_datasets = ['breast_cancer', 'australian', 'cardio_3', 'mushrooms', 'libras_move',
+                     'letter_a', 'ecoli_imu', 'optical_digits_0', 'page_blocks', 'fourclass']
+    list_datasets_labels = ['breast-cancer', 'australian', 'cardio-3', 'mushrooms', 'libras-move',
+                            'letter[a]', 'ecoli-imu', 'optical-digits[0]', 'page-blocks', 'fourclass']
+    for index, dataset in enumerate(list_datasets[0:10]):
+        ind_model, ind = index // 5, index % 5
+        root = '/home/baojian/Dropbox/pub/2020/NIPS-2020/supp-and-code/datasets/'
+        data = pkl.load(open(root + '%s/t_sne_2d_%s.pkl' % (dataset, dataset), 'rb'))
+        x_tr, y_tr = data[('standard', 50)]['x_tr'], data[('standard', 50)]['y_tr']
+        embeddings = data[('standard', 50)]['embeddings']
+        from sklearn.preprocessing import StandardScaler
+        embeddings = StandardScaler().fit_transform(X=embeddings)
+        ax[ind_model, ind].scatter(embeddings[np.argwhere(y_tr > 0), 0],
+                                   embeddings[np.argwhere(y_tr > 0), 1],
+                                   c='r', marker='o', facecolor='None', s=5.)
+        ax[ind_model, ind].scatter(embeddings[np.argwhere(y_tr < 0), 0],
+                                   embeddings[np.argwhere(y_tr < 0), 1],
+                                   c='b', marker='+', facecolor='None', s=5.)
+        ax[ind_model, ind].set_title('%s' % list_datasets_labels[index], fontsize=18)
+        ax[ind_model, ind].tick_params(axis='y', direction='in')
+        ax[ind_model, ind].tick_params(axis='x', direction='in')
+        ax[ind_model, ind].set_xticks([])
+        ax[ind_model, ind].set_yticks([])
+    f_name = get_data_path() + 't_sne_2d_0_10.pdf'
+    plt.subplots_adjust(wspace=0.05, hspace=0.2)
+    fig.savefig(f_name, dpi=300, bbox_inches='tight', pad_inches=.1, format='pdf')
+    plt.close()
 
 
 if __name__ == '__main__':

@@ -36,5 +36,16 @@
 double custom_kernel(KERNEL_PARM *kernel_parm, SVECTOR *a, SVECTOR *b) 
      /* plug in you favorite kernel */                          
 {
-  return((double)(1.0));
+  long ktype=kernel_parm->kernel_type;
+  double kval;
+
+  if(a->kernel_id!=b->kernel_id) exit(1);
+
+  /* if(a->kernel_id==2) return(0); */
+
+  kernel_parm->kernel_type=a->kernel_id;
+  kval=single_kernel(kernel_parm,a,b);
+  kernel_parm->kernel_type=ktype;
+
+  return(kval);
 }

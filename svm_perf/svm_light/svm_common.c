@@ -95,9 +95,21 @@ double kernel_s(KERNEL_PARM *kernel_parm, SVECTOR *a, SVECTOR *b)
   return(sum);
 }
 
+double single_kernel_s(KERNEL_PARM *kernel_parm, SVECTOR *a, SVECTOR *b) 
+     /* calculate the kernel function between two SVECTOR, but lists
+	are not followed. factor is used. Kernel_id is checked for
+	match, otherwise 0 is returned. */
+{
+  if(a->kernel_id == b->kernel_id)
+    return(a->factor*b->factor*single_kernel(kernel_parm,a,b));
+  else
+    return(0);
+}
+
+
 double single_kernel(KERNEL_PARM *kernel_parm, SVECTOR *a, SVECTOR *b) 
      /* calculate the kernel function between two vectors, lists are
-	not followed */
+	not followed. factor is not used and kernel_id is not checked. */
 {
   kernel_cache_statistic++;
   switch(kernel_parm->kernel_type) {
@@ -122,13 +134,18 @@ SVECTOR *create_svector(WORD *words,char *userdefined,double factor)
   SVECTOR *vec;
   long    fnum,i;
 
-  fnum=0;
-  while(words[fnum].wnum) {
-    fnum++;
-  }
-  fnum++;
   vec = (SVECTOR *)my_malloc(sizeof(SVECTOR));
-  vec->words = (WORD *)my_malloc(sizeof(WORD)*(fnum));
+
+  fnum=0;
+  if(words) {
+    while(words[fnum].wnum)
+      fnum++;
+    fnum++;
+    vec->words = (WORD *)my_malloc(sizeof(WORD)*(fnum));
+  }
+  else 
+    vec->words = NULL;
+
   for(i=0;i<fnum;i++) { 
       vec->words[i]=words[i];
   }
@@ -144,6 +161,8 @@ SVECTOR *create_svector(WORD *words,char *userdefined,double factor)
   vec->kernel_id=0;
   vec->next=NULL;
   vec->factor=factor;
+  vec->dense=NULL;
+  vec->size=-1;
   return(vec);
 }
 
@@ -159,6 +178,8 @@ SVECTOR *create_svector_shallow(WORD *words,char *userdefined,double factor)
   vec->kernel_id=0;
   vec->next=NULL;
   vec->factor=factor;
+  vec->dense=NULL;
+  vec->size=-1;
   return(vec);
 }
 
@@ -199,6 +220,17 @@ SVECTOR *create_svector_n_r(double *nonsparsevec, long maxfeatnum, char *userdef
   vec->kernel_id=0;
   vec->next=NULL;
   vec->factor=factor;
+  vec->dense=NULL;
+  vec->size=maxfeatnum;
+  return(vec);
+}
+
+SVECTOR *create_svector_nvector_n(double *nonsparsevec, long maxfeatnum, char *userdefined, double factor)
+{
+  SVECTOR *vec;
+  vec=create_svector_n(nonsparsevec,maxfeatnum,userdefined,factor);
+  vec->dense=copy_nvector(nonsparsevec,maxfeatnum);
+  vec->size=maxfeatnum;
   return(vec);
 }
 
@@ -208,6 +240,9 @@ SVECTOR *copy_svector(SVECTOR *vec)
   if(vec) {
     newvec=create_svector(vec->words,vec->userdefined,vec->factor);
     newvec->kernel_id=vec->kernel_id;
+    newvec->size=vec->size;
+    if(vec->dense)
+      newvec->dense=copy_nvector(vec->dense,vec->size);
     newvec->next=copy_svector(vec->next);
   }
   return(newvec);
@@ -220,6 +255,9 @@ SVECTOR *copy_svector_shallow(SVECTOR *vec)
   if(vec) {
     newvec=create_svector_shallow(vec->words,vec->userdefined,vec->factor);
     newvec->kernel_id=vec->kernel_id;
+    if(vec->dense)
+      newvec->dense=vec->dense;
+    newvec->size=vec->size;
     newvec->next=copy_svector_shallow(vec->next);
   }
   return(newvec);
@@ -233,6 +271,9 @@ void free_svector(SVECTOR *vec)
       free(vec->words);
     if(vec->userdefined)
       free(vec->userdefined);
+    if(vec->dense) {
+      free_nvector(vec->dense);
+    }
     next=vec->next;
     free(vec);
     vec=next;
@@ -250,26 +291,80 @@ void free_svector_shallow(SVECTOR *vec)
   }
 }
 
+void add_dense_vector_to_svector(SVECTOR *svec, long n)
+  /* adds a dense representation of the vector to svector. n is the
+     dimensionality of the vector. */
+{
+  svec->dense=create_nvector_svector(svec,n);
+  svec->size=n;
+}
+
+void print_svector(SVECTOR *vec)
+{
+  WORD *ai;
+  printf("(%f * [",(double)vec->factor);
+  for(ai=vec->words;ai->wnum;ai++) {
+    printf("%d:%f ",(int)ai->wnum,(double)ai->weight);
+  }
+  printf("])\n");
+}
+
+long num_nonzero_svector(SVECTOR *v)
+     /* returns number of non-zero elements in v (lists are not followed) */
+{
+  WORD *ai;
+  long num=0;
+  for(ai=v->words;ai->wnum;ai++)
+    num++;
+  return(num);
+}
+
+long maxfeatnum_svector(SVECTOR *v)
+     /* returns largest feature id that occurs in v */
+{
+  WORD *ai;
+  long maxfeatnum;
+  for(maxfeatnum=0;v;v=v->next)
+    for(ai=v->words;ai->wnum;ai++)
+      maxfeatnum=MAX(ai->wnum,maxfeatnum);
+  return(maxfeatnum);
+}
+
+long listlength_svector(SVECTOR *v)
+     /* returns length of the list in v */
+{
+  long length;
+  for(length=0;v;v=v->next)
+    length++;
+  return(length);
+}
+
 double sprod_ss(SVECTOR *a, SVECTOR *b) 
      /* compute the inner product of two sparse vectors */
 {
     register double sum=0;
     register WORD *ai,*bj;
-    ai=a->words;
-    bj=b->words;
-    while (ai->wnum && bj->wnum) {
-      if(ai->wnum > bj->wnum) {
-	bj++;
-      }
-      else if (ai->wnum < bj->wnum) {
-	ai++;
-      }
-      else {
-	sum+=(ai->weight) * (bj->weight);
-	ai++;
-	bj++;
+    if((!a->dense) && (!b->dense)) {
+      ai=a->words;
+      bj=b->words;
+      while (ai->wnum && bj->wnum) {
+	if(ai->wnum > bj->wnum) {
+	  bj++;
+	}
+	else if (ai->wnum < bj->wnum) {
+	  ai++;
+	}
+	else {
+	  sum+=(ai->weight) * (bj->weight);
+	  ai++;
+	  bj++;
+	}
       }
     }
+    else if((a->dense) && (!b->dense)) 
+      sum=sprod_ns_boundcheck(a->dense,b,a->size); 
+    else 
+      sum=sprod_ns_boundcheck(b->dense,a,b->size);
     return((double)sum);
 }
 
@@ -814,6 +909,18 @@ double sprod_ns(double *vec_n, SVECTOR *vec_s)
   return(sum);
 }
 
+double sprod_ns_boundcheck(double *vec_n, SVECTOR *vec_s, long n)
+{
+  register double sum=0;
+  register WORD *ai;
+  ai=vec_s->words;
+  while (ai->wnum && (ai->wnum<=n)) {
+    sum+=(vec_n[ai->wnum]*(double)ai->weight);
+    ai++;
+  }
+  return(sum);
+}
+
 void add_weight_vector_to_linear_model(MODEL *model)
      /* compute weight vector in linear case and add to model */
 {
@@ -828,6 +935,15 @@ void add_weight_vector_to_linear_model(MODEL *model)
   }
 }
 
+void add_dense_vectors_to_model(MODEL *model)
+     /* for each support vector, add a dense vector
+	representation. This makes inner products much faster, if the
+	sv are dense and the vector to be classified is sparse. */
+{
+  long n=model->totwords,i;
+  for(i=1;i<model->sv_num;i++) 
+    add_dense_vector_to_svector(model->supvec[i]->fvec,n);
+}
 
 DOC *create_example(long docnum, long queryid, long slackid, 
 		    double costfactor, SVECTOR *fvec)
@@ -936,7 +1052,7 @@ MATRIX *realloc_matrix(MATRIX *matrix, int n, int m)
   return(matrix);
 }
 
-double *create_nvector(int n)
+double *create_nvector(long n)
 /* creates a dense column vector with n+1 rows. unfortunately, there
    is part of the code that starts counting at 0, while the sparse
    vectors start counting at 1. So, it always allocates one extra
@@ -949,10 +1065,31 @@ double *create_nvector(int n)
   return(vector);
 }
 
-void clear_nvector(double *vec, long int n)
+double *create_nvector_svector(SVECTOR *svec, long n)
+{
+  register long i;
+  double *nvec;
+  WORD *ai;
+  nvec=create_nvector(n);
+  clear_nvector(nvec,n);
+  for(ai=svec->words;ai->wnum;ai++) 
+    nvec[ai->wnum]=ai->weight;
+  return(nvec);
+}
+
+void clear_nvector(double *vec, long n)
 {
   register long i;
   for(i=0;i<=n;i++) vec[i]=0;
+}
+
+double *copy_nvector(double *vec, long n)
+{
+  register long i;
+  double *copy;
+  copy=create_nvector(n);
+  for(i=0;i<=n;i++) copy[i]=vec[i];
+  return(copy);
 }
 
 MATRIX *copy_matrix(MATRIX *matrix)
@@ -1029,10 +1166,42 @@ MATRIX *cholesky_matrix(MATRIX *A)
       else L->element[j][i]=sum/L->element[i][i];
     }
   }
-  /* set upper triange to zero */
+  /* set upper triangle to zero */
   for (i=0;i<n;i++) 
     for (j=i+1;j<n;j++) 
       L->element[i][j]=0;
+
+  return(L);
+}
+
+MATRIX *cholesky_addcol_matrix(MATRIX *L,double *newcol)
+/* Given the Cholesky decomposition L of a positive-definite symmetric matrix A[0..n-1][0..n-1], this routine constructs the Cholesky decomposition of A', which is A extended by the size n+1 column vector newcol. 
+   A'=[A   newcol]
+      [newcol^T  ]
+The Cholesky factor L is returned in the lower triangle. The L that is given to the function is free'd. */ 
+{
+  int i,j,k,n;
+  double sum;
+  
+  if(L->m != L->n) {
+    printf("ERROR: Matrix not quadratic. Cannot compute Cholesky!\n");
+    exit(1);
+  }
+  n=L->n;
+  L=realloc_matrix(L,n+1,n+1);
+  for (i=0;i<n+1;i++) 
+    L->element[n][i]=newcol[i];
+
+  for (k=0;k<n;k++) {
+    L->element[n][k]/=L->element[k][k];
+    for (j=k+1;j<n+1;j++) 
+      L->element[n][j]-=L->element[n][k]*L->element[j][k];
+  }
+  L->element[n][n]=sqrt(L->element[n][n]);
+
+  /* set upper triangle to zero */
+  for (i=0;i<n;i++) 
+    L->element[i][n]=0;
 
   return(L);
 }
@@ -1075,6 +1244,84 @@ double *find_indep_subset_of_matrix(MATRIX *A, double epsilon)
   return(indep);
 }
 
+MATRIX *incomplete_cholesky(DOC **x,long n,long rank,double epsilon,
+			    KERNEL_PARM *kparm, long **index)
+     /* computes an incomplete cholesky decomposition as describe bei
+	Fine and Scheinberg (JMLR01). rank is the desired rank, and
+	epsilon is the cutoff on the pivot score. This means it can
+	return a solution with lower rank than specified. The cholesky
+	matrix returned is in the lower triangular portion. index
+	returns an array with the indices of the vectors in x that
+	were selected in the decomposition (terminated by -1). */
+{
+  long i,j,k,pivot,*pindex,*swap,temp2;
+  double sum,pscore,temp,*dG;
+
+  MATRIX *G;
+
+  pindex=my_malloc(sizeof(long)*(rank+1));
+  swap=my_malloc(sizeof(long)*(n));
+  dG=my_malloc(sizeof(double)*n);
+  G=create_matrix(n,rank);
+  for(i=0;i<n;i++) {
+    swap[i]=i;
+    for(j=0;j<rank;j++) {
+      G->element[i][j]=0;
+    }
+  }
+  for(i=0;i<rank;i++) {
+    /* compute pivot score */
+    for(j=i;j<n;j++) {
+      dG[j]=kernel(kparm,x[swap[j]],x[swap[j]]);
+      for(k=0;k<=i-1;k++) {
+	dG[j]-=G->element[j][k]*G->element[j][k];
+      }
+    }
+    /* find max pivot */
+    for(j=i,pivot=i,pscore=0;j<n;j++) {
+      if(pscore < dG[j]) {
+	pscore=dG[j];
+	pivot=j;
+      }
+    }
+    if(pscore <= epsilon) {
+      free(swap);
+      free(dG);
+      pindex[i]=-1;
+      (*index)=pindex;
+      return(realloc_matrix(G,i,i));
+    }
+    /* printf("%ld: pivot=%ld score=%lf\n",i,pivot,pscore); */
+    pindex[i]=swap[pivot];
+    for(j=i;j<n;j++) {
+      G->element[j][i]=kernel(kparm,x[swap[j]],x[swap[pivot]]);
+    }
+    temp2=swap[pivot];
+    swap[pivot]=swap[i];
+    swap[i]=temp2;
+    for(j=0;j<=i;j++) {
+      temp=G->element[i][j];
+      G->element[i][j]=G->element[pivot][j];
+      G->element[pivot][j]=temp;
+    }
+    G->element[i][i]=dG[pivot];
+    for(j=0;j<=i-1;j++) {
+      for(k=i+1;k<n;k++) {
+	G->element[k][i]-=G->element[k][j]*G->element[i][j];
+      }
+    }
+    G->element[i][i]=sqrt(G->element[i][i]);
+    for(k=i+1;k<n;k++) {
+      G->element[k][i]/=G->element[i][i];
+    }
+  }
+  free(swap);
+  free(dG);
+
+  pindex[i]=-1;
+  (*index)=pindex;
+  return(realloc_matrix(G,rank,rank));
+}
 
 MATRIX *invert_ltriangle_matrix(MATRIX *L)
 /* Given a lower triangular matrix L, computes inverse L^-1 */
@@ -1100,6 +1347,84 @@ MATRIX *invert_ltriangle_matrix(MATRIX *L)
   }
 
   return(I);
+}
+
+double *solve_psd_linear_system(MATRIX *A, double *v)
+/* for a strictly positive definite matrix A and a vector v, solves the
+   linear system A*x=v for x using the cholesky decomposition of A. */
+{
+  MATRIX *L,*invL;
+  double *y,*x;
+
+  L=cholesky_matrix(A);
+  invL=invert_ltriangle_matrix(L);
+  y=prod_ltmatrix_nvector(invL,v);
+  x=prod_nvector_ltmatrix(y,invL);
+
+  free_matrix(L);
+  free_matrix(invL);
+  free(y);
+
+  return(x);
+}
+
+double *solve_psd_linear_system_cholesky(MATRIX *L, double *v)
+/* for a strictly positive definite matrix A=L*L^T and a vector v, solves the
+   linear system L*L^T*x=v for x using the cholesky decomposition L of A. */
+{
+  long i,j,n=L->n;
+  double *x,sum;
+
+  x=create_nvector(n);
+  for(i=0;i<n;i++) {
+    sum=v[i];
+    for(j=i-1;j>=0;j--) 
+      sum-=L->element[i][j]*x[j];
+    x[i]=sum/L->element[i][i];
+  }
+  for(i=n-1;i>=0;i--) {
+    sum=x[i];
+    for(j=i+1;j<n;j++) 
+      sum-=L->element[j][i]*x[j];
+    x[i]=sum/L->element[i][i];
+  }
+  return(x);
+}
+
+void smult_nvector(double *vec, long n, double faktor)
+{
+  register long i;
+  for(i=0;i<=n;i++) vec[i]*=faktor;
+}
+
+void multadd_nvector(double *a, double *b, double fa, double fb, long n)
+{
+  register long i;
+  for(i=0;i<=n;i++) a[i]=a[i]*fa+b[i]*fb;
+}
+
+double sprod_nvector_nvector(double *a, double *b, long n)
+{
+  register long i;
+  double sum=0;
+  for(i=0;i<=n;i++) sum+=a[i]*b[i];
+  return(sum);
+}
+
+double quad_nvector_matrix(double *v, MATRIX *A)
+/* For column vector v and a square matrix A (assumed to match in
+   size), computes v^T*A*v */
+{
+  int i,j;
+  double sum=0;
+ 
+  for(i=0;i<A->m;i++) {
+    for(j=0;j<A->n;j++) {
+      sum+=v[i]*v[j]*A->element[j][i];
+    }
+  }
+
+  return(sum);
 }
 
 double *prod_nvector_matrix(double *v, MATRIX *A)
@@ -1219,10 +1544,63 @@ void print_matrix(MATRIX *matrix)
   printf("\n");
   for(i=0;i<matrix->n;i++) {
     for(j=0;j<matrix->m;j++) {
-      printf("%4.3f\t",matrix->element[i][j]);
+      printf("%8.2f ",matrix->element[i][j]);
     }
     printf("\n");
   }
+}
+
+void print_nvector(double *vec, long n)
+/* prints vector to STDOUT */
+{
+  int i;
+
+  printf("\n");
+  printf("\n");
+  for(i=0;i<n;i++) {
+      printf("%8.2f ",vec[i]);
+  }
+  printf("\n");
+}
+
+double mean_nvector(double *vec, long n) 
+     /* computes mean of first n values in vec */
+{
+  long i;
+  double sum=0;
+  for(i=0;i<n;i++) 
+    sum+=vec[i];
+  return(sum/n);
+}
+
+double variance_nvector(double *vec, long n) 
+     /* computes variance of first n values in vec */
+{
+  long i;
+  double sum=0,mean=mean_nvector(vec,n);
+  for(i=0;i<n;i++) 
+    sum+=(mean-vec[i])*(mean-vec[i]);
+  return(sum/n);
+}
+
+int compare_double (const void * a, const void * b)
+{
+  return((*(double *)a > *(double *)b) - (*(double *)a < *(double *)b));
+}
+
+double percentile_nvector(double *vec, long n, double percent) 
+     /* returns the value of the percent-highest element in vec */
+     /* NOTE: percent is given as a fraction [0,1], not percentage [0,100] */
+{
+  double *sort=my_malloc(sizeof(double)*n);
+  long i;
+  double sum;
+  for(i=0;i<n;i++)
+    sort[i]=vec[i];
+  qsort(sort,n,sizeof(double),compare_double);
+  sum=sort[(int)(percent*(double)n)];
+  free(sort);
+  return(sum);
 }
 
 /***************************** IO routines ***************************/
@@ -1278,6 +1656,8 @@ void write_model(char *modelfile, MODEL *model)
   for(i=1;i<model->sv_num;i++) {
     for(v=model->supvec[i]->fvec;v;v=v->next) {
       fprintf(modelfl,"%.32g ",model->alpha[i]*v->factor);
+      if(v->kernel_id) 
+	fprintf(modelfl,"qid:%ld ",v->kernel_id);
       for (j=0; (v->words[j]).wnum; j++) {
 	fprintf(modelfl,"%ld:%.8g ",
 		(long)(v->words[j]).wnum,
@@ -1361,6 +1741,7 @@ MODEL *read_model(char *modelfile)
 				      0,0,
 				      0.0,
 				      create_svector(words,comment,1.0));
+    model->supvec[i]->fvec->kernel_id=queryid;
   }
   fclose(modelfl);
   free(line);
@@ -1391,9 +1772,7 @@ MODEL *copy_model(MODEL *model)
 				       copy_svector(model->supvec[i]->fvec));
   }
   if(model->lin_weights) {
-    newmodel->lin_weights = (double *)my_malloc(sizeof(double)*(model->totwords+1));
-    for(i=0;i<model->totwords+1;i++) 
-      newmodel->lin_weights[i]=model->lin_weights[i];
+    newmodel->lin_weights=copy_nvector(model->lin_weights,model->totwords);
   }
   return(newmodel);
 }

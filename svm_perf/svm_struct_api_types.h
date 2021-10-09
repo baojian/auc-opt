@@ -24,8 +24,8 @@
 # include "svm_light/svm_learn.h"
 
 # define INST_NAME          "SVM-perf"
-# define INST_VERSION       "V2.50"
-# define INST_VERSION_DATE  "15.01.2008"
+# define INST_VERSION       "V3.00"
+# define INST_VERSION_DATE  "15.07.2009"
 
 /* Identifiers for loss functions */
 #define ZEROONE      0
@@ -93,6 +93,14 @@ typedef struct structmodel {
   long expansion_size;         /* Number of vectors in sparse kernel
 				  expansion */
   DOC **expansion;             /* Vectors in sparse kernel expansion */
+  long reducedset_size;        /* Number of vectors in reduced set
+				  expansion */
+  SVECTOR **reducedset;        /* Vectors in reduced set expansion */
+  float **reducedset_kernel;   /* Kernel values between reduced set
+				  expansion and training examples */
+  MATRIX *reducedset_gram;     /* Gram matrix of reduced set expansion */
+  MATRIX *reducedset_cholgram; /* Cholesky decomposition of Gram
+				  matrix of reduced set expansion */
   MATRIX *invL;                /* Inverse of Cholesky decomposition of
 				  Gram matrix over the vectors in the
 				  sparse kernel expansion */
@@ -124,7 +132,10 @@ typedef struct struct_learn_parm {
 				  functions via -l command line
 				  option */
   /* further parameters that are passed to init_struct_model() */
-  int num_features;
+  int    num_features;
+  int    truncate_fvec;        /* should test example vectors be
+				  truncated to the number of features
+				  seen in the training data? */
   double bias;                 /* value for artificial bias feature */
   long   bias_featurenum;      /* id number of bias feature */
   double prec_rec_k_frac;      /* fraction of training set size to use
@@ -138,9 +149,26 @@ typedef struct struct_learn_parm {
   char   sparse_kernel_file[999];/* File that contains set of basis
 				    functions for training with
 				    approximate kernel expansion.  */
+  int    sparse_kernel_method; /* method for selecting sparse kernel
+				  subspace (1 random sampling, 2
+				  incomplete cholesky) */
   int    shrinking;            /* Selects whether shrinking heuristic
 				  is used in the custom algorithm for
 				  minimizing error rate. */
+  double rset_precision;       /* (only used internally) minimum
+				  improvement in euclidian distance so
+				  that the preimage is added to the
+				  reduced set expansion */
+  int    preimage_method;      /* method to use for finding preimages */
+  int    recompute_rset;       /* selects whether the reduced set is
+				  recomputed and the method restarted
+				  again, after it has converged for
+				  the first time */
+  int    classify_dense;       /* uses a dense vector representation
+				  when classifying new examples in
+				  svm_perf_classify. This uses more
+				  memory, but is faster if the support
+				  vectors in the model are dense. */
 } STRUCT_LEARN_PARM;
 
 typedef struct struct_test_stats {

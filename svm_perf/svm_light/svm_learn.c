@@ -917,7 +917,7 @@ void svm_learn_optimization(DOC **docs, double *rhs, long int
   timing_profile.time_model=0;
   timing_profile.time_check=0;
   timing_profile.time_select=0;
-  kernel_cache_statistic=0;
+  kernel_cache_statistic=0; 
 
   learn_parm->totwords=totwords;
 
