@@ -10,20 +10,7 @@ from sklearn.metrics import roc_auc_score
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LogisticRegression
 
-root_path = '/home/baojian/'
-
-
-def get_root_path():
-    if os.uname()[1] == 'baojian-ThinkPad-T540p':
-        root_path = '/data/auc-logistic/'
-    elif os.uname()[1] == 'pascal':
-        root_path = '/mnt/store2/baojian/data/auc-logistic/'
-    elif os.uname()[1].endswith('.rit.albany.edu'):
-        root_path = '/network/rit/lab/ceashpc/bz383376/data/auc-logistic/'
-    else:
-        root_path = '/network/rit/lab/ceashpc/bz383376/data/auc-logistic/'
-    return root_path
-
+root_path = '/home/baojian/data/aistats22-auc-opt/datasets'
 
 try:
     import libopt_auc_3
@@ -112,8 +99,9 @@ def get_data():
 
 def toy_example():
     x_tr, y_tr, pp, x_min, x_max, y_min, y_max, h = get_data()
-    fig1, ax1 = plt.subplots(1, 1, figsize=(4, 4))
-    fig2, ax2 = plt.subplots(1, 1, figsize=(4, 4))
+    fig1, ax = plt.subplots(1, 2, figsize=(8, 3.5))
+    ax1 = ax[0]
+    ax2 = ax[1]
     ax1.scatter(x_tr[np.argwhere(y_tr < 0), 0], x_tr[np.argwhere(y_tr < 0), 1],
                 c='b', marker='_', s=10, alpha=0.8)
     ax1.scatter(x_tr[np.argwhere(y_tr > 0), 0], x_tr[np.argwhere(y_tr > 0), 1],
@@ -122,7 +110,7 @@ def toy_example():
                                        np.asarray(y_tr, dtype=np.float64), 2e-16)
     print('opt-auc', auc)
     fpr, tpr, _ = roc_curve(y_true=y_tr, y_score=np.dot(x_tr, w_opt))
-    ax2.plot(fpr, tpr, label='AUC-opt : %.2f' % auc, color='tab:red')
+    ax2.plot(fpr, tpr, linestyle='-', zorder=-1, label='AUC-opt (%.2f)' % auc, color='tab:red')
     list_c, k_fold, best_auc, w_svm = np.logspace(-6, 4, 50), 5, -1., None
     for para_xi in list_c:
         tr_scores, te_scores, model = cmd_svm_perf(x_tr, y_tr, x_tr, y_tr, para_xi, 'linear')
@@ -132,7 +120,7 @@ def toy_example():
             best_auc = auc
             w_svm = [float(_.split(b':')[1]) for _ in model[-1].split(b' ')[1:3]]
     fpr, tpr, _ = roc_curve(y_true=y_tr, y_score=np.dot(x_tr, w_svm))
-    ax2.plot(fpr, tpr, label='SVM-Perf : %.2f' % best_auc, color='tab:green')
+    ax2.plot(fpr, tpr, linestyle='--', zorder=-1, label='SVM-Perf (%.2f)' % best_auc, color='tab:green')
     list_c, k_fold, best_auc, w_lr, c_lr = np.logspace(-10, 10, 50), 5, -1., None, None
     for para_xi in list_c:
         lr = LogisticRegression(
@@ -146,13 +134,20 @@ def toy_example():
             best_auc = auc
             w_lr = lr.coef_.flatten()
     fpr, tpr, _ = roc_curve(y_true=y_tr, y_score=np.dot(x_tr, w_lr))
-    ax2.plot(fpr, tpr, label='LR : %.2f' % best_auc, color='tab:blue')
-    ax2.plot([0, 1], [0, 1], label='Random : 0.50', color='gray', linestyle=':')
+    ax2.plot(fpr, tpr, linestyle='dotted', zorder=-1, label='LR (%.2f)' % best_auc, color='tab:blue')
     print('lr', best_auc)
-    ax2.set_xticks([0.0, 0.2, 0.4, 0.6, 0.8, 1.0])
-    ax2.set_yticks([0.0, 0.2, 0.4, 0.6, 0.8, 1.0])
-    ax2.set_ylabel('True Positive Rate (TPR)', fontsize=12)
-    ax2.set_xlabel('False Positive Rate (FPR)', fontsize=12)
+    ax2.set_xticks([0.5, 1.0])
+    ax2.set_xticklabels([".5", "1."])
+    ax2.set_yticks([0.5, 1.0])
+    ax2.set_yticklabels([".5", "1."])
+    ax2.set_ylabel('TPR', fontsize=12, labelpad=-30)
+    ax2.yaxis.set_label_coords(.1, .7)
+    ax2.xaxis.set_label_coords(.7, .1)
+    ax2.set_xlabel('FPR', fontsize=12, labelpad=-30)
+    ax1.spines['top'].set_visible(False)
+    ax1.spines['right'].set_visible(False)
+    ax2.spines['top'].set_visible(False)
+    ax2.spines['right'].set_visible(False)
     ppx = np.arange(x_min, x_max, h)
     xx, yy = [], []
     for _ in ppx:
@@ -173,22 +168,16 @@ def toy_example():
             yy.append(-(w_lr[0] * _) / w_lr[1])
     ax1.plot(xx, yy, linestyle='dotted', zorder=-1, label='LR', color='tab:blue')
     print('svm', best_auc)
-    ax1.legend(loc='upper left', frameon=False, fontsize=12, handlelength=1.8)
-    ax2.legend(loc='lower right', frameon=False, fontsize=12, handlelength=1.5)
+    ax1.legend(loc='upper left', frameon=False, fontsize=11, handlelength=1.2)
+    ax2.legend(loc="lower right", bbox_to_anchor=(.99, .12), frameon=False, fontsize=11, handlelength=1.2)
     ax1.tick_params(axis='y', direction='in')
     ax1.tick_params(axis='x', direction='in')
-    ax2.tick_params(axis='y', direction='in')
-    ax2.tick_params(axis='x', direction='in')
+    ax2.tick_params(axis='y', direction='in', pad=-22)
+    ax2.tick_params(axis='x', direction='in', pad=-22)
     ax1.set_xticks([])
     ax1.set_yticks([])
-
-    f_name = root_path + 'nips-2020-supp/figs/%s' % 'toy-example-samples.pdf'
-    fig1.subplots_adjust(wspace=0.01, hspace=0.01)
-    fig1.savefig(f_name, dpi=300, bbox_inches='tight', pad_inches=.02, format='pdf')
-    plt.close()
-    f_name = root_path + 'nips-2020-supp/figs/%s' % 'toy-example-roc.pdf'
-    fig2.subplots_adjust(wspace=0.01, hspace=0.01)
-    fig2.savefig(f_name, dpi=300, bbox_inches='tight', pad_inches=.02, format='pdf')
+    fig1.subplots_adjust(wspace=0.1, hspace=0.01)
+    fig1.savefig('figs/%s' % 'toy-example-auc-opt.pdf', dpi=300, bbox_inches='tight', pad_inches=.02, format='pdf')
     plt.close()
 
 
@@ -208,7 +197,7 @@ def find_the_significance():
     arr_fill_style = ['none'] * 50
     arr_color_style = ['white'] * 50
     for ind, dataset in enumerate(list_datasets):
-        results = pkl.load(open(get_root_path() + '%s/results_all_%s.pkl' % (dataset, dataset), 'rb'))
+        results = pkl.load(open(root_path + '%s/results_all_%s.pkl' % (dataset, dataset), 'rb'))
         opt_auc, best_approx, best_gap, index_i = 0.0, 0.0, 0.0, 0
         t1, t2 = [], []
         for i in range(210):
@@ -292,4 +281,18 @@ def find_the_significance():
 
 
 if __name__ == '__main__':
+    if False:
+        x = [1, 2, 3, 4, 5, 6]
+        y = [4, 5, 8, 14, 24, 19]
+        # create scatterplot
+        fig, ax = plt.subplots()
+        ax.scatter(x, y)
+        # add axis labels
+        ax.set_ylabel('Y-Axis Label', labelpad=-30)
+        ax.set_xlabel('X-Axis Label')
+        # adjust position of x-axis label
+        ax.yaxis.set_label_coords(.06, .7)
+        ax.xaxis.set_label_coords(.7, .06)
+        plt.show()
+        exit()
     toy_example()

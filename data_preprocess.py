@@ -29,22 +29,12 @@ spectf:             https://archive.ics.uci.edu/ml/datasets/Yeast
 ionosphere:         https://archive.ics.uci.edu/ml/datasets/ionosphere
 """
 
-
-def get_data_path():
-    if os.uname()[1] == 'baojian-ThinkPad-T540p':
-        root_path = '/data/auc-logistic/'
-    elif os.uname()[1] == 'pascal':
-        root_path = '/mnt/store2/baojian/data/auc-logistic/'
-    elif os.uname()[1].endswith('.rit.albany.edu'):
-        root_path = '/network/rit/lab/ceashpc/bz383376/data/auc-logistic/'
-    else:
-        root_path = '/network/rit/lab/ceashpc/bz383376/data/auc-logistic/'
-    return root_path
+root_path = "/home/baojian/data/aistats22-auc-opt/datasets/"
 
 
 def get_real_data(dataset):
     x_tr, y_tr = [], []
-    with open(get_data_path() + '%s/input_%s.txt' % (dataset, dataset)) as f:
+    with open(root_path + '%s/input_%s.txt' % (dataset, dataset)) as f:
         for ind, each_line in enumerate(f.readlines()):
             each_line = each_line.rstrip()
             if each_line.startswith('#'):
@@ -62,8 +52,11 @@ def get_real_data(dataset):
     return np.asarray(x_tr, dtype=np.float64), np.asarray(y_tr, dtype=np.float64)
 
 
-def get_tsne_data(dataset):
-    data = pkl.load(open(get_data_path() + '%s/t_sne_2d_%s.pkl' % (dataset, dataset), 'rb'))
+def get_tsne_data(dataset, dtype='3d'):
+    if dtype == '3d':
+        data = pkl.load(open(root_path + '%s/t_sne_3d_%s.pkl' % (dataset, dataset), 'rb'))
+    else:
+        data = pkl.load(open(root_path + '%s/t_sne_2d_%s.pkl' % (dataset, dataset), 'rb'))
     if dataset == 'fourclass':
         key = ('original', 50)
     else:
@@ -83,7 +76,6 @@ def _get_data(x_tr, y_tr, data_name, num_trials, split_ratio, verbose):
     sklearn.preprocessing.StandardScaler
     """
     np.random.seed(17)
-    root_path = get_data_path()
     x_tr = np.asarray(x_tr, dtype=float)
     y_tr = np.asarray(y_tr, dtype=float)
     data = {'name': data_name,
@@ -163,6 +155,25 @@ def t_sne_2d(para):
             'random_state': rand_state, 'method': 'barnes_hut', 'angle': 0.5, 'n_jobs': 'None'}}}
 
 
+def t_sne_3d(para):
+    data_name, model_name, data_x, data_y, perplexity, rand_state = para
+    start_time = time.time()
+    t_sne = TSNE(n_components=3, perplexity=perplexity, early_exaggeration=12.0, learning_rate=200.0,
+                 n_iter=5000, n_iter_without_progress=300, min_grad_norm=1e-7, metric="euclidean",
+                 init="random", verbose=1, random_state=rand_state, method='barnes_hut', angle=0.5,
+                 n_jobs=None)
+    t_sne.fit_transform(X=data_x, y=data_y)
+    print(model_name, perplexity, 'run_time', time.time() - start_time)
+    return {(model_name, perplexity): {
+        'data_name': data_name, 'x_tr': data_x, 'y_tr': data_y,
+        'rand_state': rand_state, 'embeddings': t_sne.embedding_,
+        't_sne_paras': {
+            'n_components': 3, 'perplexity': perplexity, 'early_exaggeration': 12.0,
+            'learning_rate': 200.0, 'n_iter': 5000, 'n_iter_without_progress': 300,
+            'min_grad_norm': 1e-7, 'metric': "euclidean", 'init': "random", 'verbose': 0,
+            'random_state': rand_state, 'method': 'barnes_hut', 'angle': 0.5, 'n_jobs': 'None'}}}
+
+
 def run_single_tsne(dataset):
     x_tr, y_tr = get_real_data(dataset=dataset)
     rand_state = 17
@@ -182,12 +193,34 @@ def run_single_tsne(dataset):
     for item in results_pool:
         for key in item:
             results[key] = item[key]
-    pkl.dump(results, open(get_data_path() + '%s/t_sne_2d_%s.pkl' % (dataset, dataset), 'wb'))
+    pkl.dump(results, open(root_path + '%s/t_sne_2d_%s.pkl' % (dataset, dataset), 'wb'))
+
+
+def run_single_tsne_3d(dataset):
+    x_tr, y_tr = get_real_data(dataset=dataset)
+    rand_state = 17
+    para_space = []
+    for model_name, model in zip(['original', 'norm', 'min_max', 'standard'],
+                                 [None, Normalizer(norm='l2'), MinMaxScaler(feature_range=(-1., 1.)),
+                                  StandardScaler()]):
+        if model is not None:
+            x_tr = model.fit_transform(X=x_tr)
+        for perplexity in [10, 20, 30, 40, 50]:
+            para_space.append((dataset, model_name, x_tr, y_tr, perplexity, rand_state))
+    pool = multiprocessing.Pool(processes=len(para_space))
+    results_pool = pool.map(t_sne_3d, para_space)
+    pool.close()
+    pool.join()
+    results = dict()
+    for item in results_pool:
+        for key in item:
+            results[key] = item[key]
+    pkl.dump(results, open(root_path + '%s/t_sne_3d_%s.pkl' % (dataset, dataset), 'wb'))
 
 
 def draw_t_sne(data_name):
     import matplotlib.pyplot as plt
-    data = pkl.load(open(get_data_path() + '%s/t_sne_2d_%s.pkl'
+    data = pkl.load(open(root_path + '%s/t_sne_2d_%s.pkl'
                          % (data_name, data_name), 'rb'))
     fig, ax = plt.subplots(4, 5, figsize=(15, 12))
     for ind_model, model_name in enumerate(['original', 'norm', 'min_max', 'standard']):
@@ -201,7 +234,7 @@ def draw_t_sne(data_name):
                                        embeddings[np.argwhere(y_tr < 0), 1],
                                        c='b', marker='+', facecolor='None', s=5.)
             ax[ind_model, ind].set_title('%s (per-%02d)' % (model_name, perplexity))
-    f_name = get_data_path() + '%s/t_sne_2d_%s.pdf' % (data_name, data_name)
+    f_name = root_path + '%s/t_sne_2d_%s.pdf' % (data_name, data_name)
     plt.subplots_adjust(wspace=0.2, hspace=0.3)
     fig.savefig(f_name, dpi=300, bbox_inches='tight', pad_inches=.1, format='pdf')
     plt.close()
@@ -263,7 +296,7 @@ def generate_seismic():
     data_name = 'seismic'
     f_path = '%s/raw_%s_old' % (data_name, data_name)
     cat_x_tr, num_x_tr = [], []
-    with open(os.path.join(get_data_path(), f_path)) as f:
+    with open(os.path.join(root_path, f_path)) as f:
         for ind, each_line in enumerate(f.readlines()):
             items = each_line.lstrip().rstrip().split(',')
             x_tr.append([_ for _ in items[:-1]])
@@ -300,8 +333,8 @@ def re_name():
     dataset = sys.argv[1]
     for method in ['rank_boost', 'adaboost', 'c_svm', 'b_c_svm', 'lr', 'b_lr', 'rf', 'b_rf', 'gb',
                    'spam', 'spauc', 'svm_perf_lin', 'rbf_svm', 'b_rbf_svm', 'svm_perf_rbf']:
-        os.rename(get_data_path() + '%s/results_pen_digits_%s.pkl' % (dataset, method),
-                  get_data_path() + '%s/results_real_pen_digits_0_%s.pkl' % (dataset, method))
+        os.rename(root_path + '%s/results_pen_digits_%s.pkl' % (dataset, method),
+                  root_path + '%s/results_real_pen_digits_0_%s.pkl' % (dataset, method))
 
 
 def print_datasets_table():
@@ -375,16 +408,18 @@ def main():
             print(' & '.join([item1[1], item2[1]]))
     elif sys.argv[1] == 'print_data':
         print_datasets_table()
-    elif sys.argv[1] == 'tsne':
+    elif sys.argv[1] == 'tsne-2d':
         run_single_tsne(dataset=sys.argv[2])
         draw_t_sne(data_name=sys.argv[2])
+    elif sys.argv[1] == 'tsne-3d':
+        run_single_tsne(dataset=sys.argv[2])
     elif sys.argv[1] == 'pre_proc':
         dataset = sys.argv[2]
-        f_w = open(get_data_path() + '%s/input_%s.txt' % (dataset, dataset), 'w')
+        f_w = open(root_path + '%s/input_%s.txt' % (dataset, dataset), 'w')
         f_w.write('# n p n_p n_q\n')
         f_w.write('%d %d\n' % (1284, 22))
         num_posi, num_nega = 0, 0
-        with open(get_data_path() + '%s/raw_svmguide3_data.txt' % dataset, 'r') as f:
+        with open(root_path + '%s/raw_svmguide3_data.txt' % dataset, 'r') as f:
             for ind, each_line in enumerate(f.readlines()):
                 items = [_ for _ in each_line.rstrip().split(' ') if _ != '']
                 print(items)
@@ -427,11 +462,11 @@ def draw_t_sne_10():
         ax[ind_model, ind].tick_params(axis='x', direction='in')
         ax[ind_model, ind].set_xticks([])
         ax[ind_model, ind].set_yticks([])
-    f_name = get_data_path() + 't_sne_2d_0_10.pdf'
+    f_name = root_path + 't_sne_2d_0_10.pdf'
     plt.subplots_adjust(wspace=0.05, hspace=0.2)
     fig.savefig(f_name, dpi=300, bbox_inches='tight', pad_inches=.1, format='pdf')
     plt.close()
 
 
 if __name__ == '__main__':
-    main()
+    run_single_tsne_3d(dataset="mushrooms")

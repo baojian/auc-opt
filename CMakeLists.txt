@@ -1,13 +1,12 @@
-cmake_minimum_required(VERSION 3.12)
+cmake_minimum_required(VERSION 3.5)
 project(auc-logistic C)
-include_directories(auc-logistic/src/)
+include_directories(src/)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_FLAGS "-Wall -Wextra")
 set(CMAKE_C_FLAGS_DEBUG "-g")
 set(CMAKE_C_FLAGS_RELEASE "-O3")
 
-set(ROOT "/network/rit/lab/ceashpc/bz383376/opt/anaconda3/envs/")
 set(ROOT "/home/baojian/anaconda3/envs/")
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c11 -O3 -fPIC -lpython3.7m -pthread")
@@ -16,12 +15,9 @@ set(NUMPY_INCLUDE "${ROOT}python-3.7/lib/python3.7/site-packages/numpy/core/incl
 set(PYTHON_LIBRARY "${ROOT}python-3.7/lib/")
 set(PYTHON_INCLUDE "${ROOT}python-3.7/include/python3.7m/")
 
-set(NUMPY_INCLUDE2 "/home/baojian/anaconda3/envs/python-2.7/lib/python2.7/site-packages/numpy/core/include")
-set(PYTHON_LIBRARY2 "/home/baojian/anaconda3/envs/python-2.7/lib/")
-set(PYTHON_INCLUDE2 "/home/baojian/anaconda3/envs/python-2.7/include/python2.7/")
-
-find_package(PythonLibs 3.7 REQUIRED)
 include_directories(${PYTHON_INCLUDE})
+find_package(PythonLibs REQUIRED)
+include_directories(${PYTHON_INCLUDE_DIRS})
 
 set(MAIN_FILE src/main.c)
 

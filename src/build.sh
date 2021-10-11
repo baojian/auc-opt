@@ -1,5 +1,5 @@
 #!/bin/bash
-ROOT="/network/rit/lab/ceashpc/bz383376/opt/anaconda3/envs/"
+ROOT="/home/baojian/anaconda3/envs/"
 PYTHON_PATH="${ROOT}python-3.7/include/python3.7m/"
 NUMPY_PATH="${ROOT}python-3.7/lib/python3.7/site-packages/numpy/core/include/"
 PYTHON_LIB="${ROOT}python-3.7/lib/"
