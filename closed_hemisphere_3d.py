@@ -2,6 +2,7 @@
 import os
 import sys
 import time
+import matplotlib.pyplot as plt
 import numpy as np
 import functools
 from sklearn.metrics import roc_auc_score
@@ -36,6 +37,7 @@ def project_3d_2d(u, points: list):
     for point in points:
         point_2d = [np.dot(e1, point), np.dot(e2, point)]
         points_2d.append(point_2d)
+        print(np.linalg.norm(point_2d))
     return points_2d
 
 
@@ -56,7 +58,6 @@ def project_2d_3d(u, points_2d: list):
 def sorting_rays(list_rays: list, u0, r0):
     def compare(r1, r2):
         u1, sign1, _ = r1
-        assert sign1 == "nega" or sign1 == "posi"
         p1 = (u1[1], -u1[0]) if sign1 == "nega" else (-u1[1], u1[0])
         u2, sign2, _ = r2
         p2 = (u2[1], -u2[0]) if sign2 == "nega" else (-u2[1], u2[0])
@@ -103,7 +104,17 @@ def check_projection(u, points, eps=1e-15):
                np.sum(np.array(np.dot(c_prime, p)) >= eps, axis=0)
 
 
+def check_original_projected(points, u, cp):
+    for i in range(1000):
+        x = np.random.normal(0., 1., 3)
+        x[2] = -(u[0] * x[0] + u[1] * x[1]) / u[2]
+        val1 = np.sum(np.array(np.dot(points, x)) > 0., axis=0)
+        val2 = np.sum(np.array(np.dot(cp, x)) > 0., axis=0)
+        print(val1, val2)
+
+
 def open_hemisphere_2d(points, sp, u, cp):
+    assert len(points) == len(cp)
     points_2d = project_3d_2d(u, cp)
     rays = []
     for ind, _ in enumerate(points_2d):
@@ -119,20 +130,23 @@ def open_hemisphere_2d(points, sp, u, cp):
     ap_val = np.sum(np.array(np.dot(points_2d, p0)) > 0., axis=0)
     max_a_val, opt_x = ap_val, np.asarray(p0)
     s2 = len(rays)
+    ap_vals = [ap_val]
     for ii in range(s2):
         u1, sign1, sp1 = rays[ii]
         pi = (u1[1], -u1[0]) if sign1 == "nega" else (-u1[1], u1[0])
         u2, sign2, sp2 = rays[(ii + 1) % s2]
         pii = (u2[1], -u2[0]) if sign2 == "nega" else (-u2[1], u2[0])
-
-        aq_val = ap_val + (1. if sign1 == "nega" and sp1 == 1 else 0.) - \
-                 (1. if sign1 == "posi" and sp1 == 0 else 0.)
+        aq_val = ap_val + (1. if sign1 == "nega" and sp1 == 1 else 0.) - (1. if sign1 == "posi" and sp1 == 0 else 0.)
         if aq_val > max_a_val:
             max_a_val, opt_x = aq_val, np.asarray(pi) + np.asarray(pii)
-        ap_val = aq_val + (1. if sign2 == "nega" and sp2 == 0 else 0.) - \
-                 (1. if sign2 == "posi" and sp2 == 1 else 0.)
+        ap_val = aq_val + (1. if sign2 == "nega" and sp2 == 0 else 0.) - (1. if sign2 == "posi" and sp2 == 1 else 0.)
+        ap_vals.append(ap_val)
         if ap_val > max_a_val:
             max_a_val, opt_x = aq_val, np.asarray(pii)
+    import matplotlib.pyplot as plt
+    plt.plot(ap_vals)
+    # plt.plot(np.diff(ap_vals))
+    plt.show()
     return opt_x, max_a_val, points_2d
 
 
@@ -158,12 +172,7 @@ def open_hemisphere_3d(points: list):
             opt_x, opt_val = yu1, a1_val
             print(opt_val, opt_val / 2500., opt_x,
                   f"expected: {np.sum(np.array(np.dot(points_2d, yu1)) > 0., axis=0)}")
-        sp = []
-        for _ in points:
-            if np.dot(_, u) > 0.0:
-                sp.append(0.)
-            else:
-                sp.append(1.)
+        sp = [1. if np.dot(_, u) <= 0.0 else 0. for _ in points]
         yu2, a2_val, points_2d = open_hemisphere_2d(points, sp, u, cp)
         if opt_val < a2_val:
             opt_x, opt_val = yu2, a2_val
@@ -172,14 +181,25 @@ def open_hemisphere_3d(points: list):
     return opt_x, opt_val
 
 
+def test_logistic(x_tr, posi_indices, nega_indices):
+    sub_tr_x = list(x_tr[posi_indices[:50], :])
+    sub_tr_x.extend(list(x_tr[nega_indices[:50], :]))
+    sub_tr_y = list(np.ones(50))
+    sub_tr_y.extend(list(-np.ones(50)))
+    lr = LogisticRegression(  # without ell_2 regularization.
+        penalty='none', dual=False, tol=1e-8, C=1.0, fit_intercept=True,
+        intercept_scaling=1, class_weight='balanced', solver='lbfgs', max_iter=10000, multi_class='ovr', verbose=0,
+        warm_start=False, n_jobs=1, l1_ratio=None)
+    lr.fit(X=np.asarray(sub_tr_x), y=sub_tr_y)
+    print(roc_auc_score(y_true=sub_tr_y, y_score=lr.decision_function(X=np.asarray(sub_tr_x))))
+
+
 def auc_opt_3d(x_tr, y_tr):
     x_tr = np.asarray(x_tr, dtype=np.float64)
     np.random.seed(17)
     assert 3 == x_tr.shape[1]
     posi_indices = [ind for ind, _ in enumerate(y_tr) if _ > 0.]
     nega_indices = [ind for ind, _ in enumerate(y_tr) if _ < 0.]
-    n_posi = len(posi_indices) * 1.
-    n_nega = len(nega_indices) * 1.
     set_k = []
     for i in posi_indices[:50]:
         for j in nega_indices[:50]:
@@ -190,10 +210,6 @@ def auc_opt_3d(x_tr, y_tr):
             point = point / np.linalg.norm(point)
             set_k.append(point)
     w, ax = open_hemisphere_3d(points=set_k)
-    exit()
-    auc = ax / (n_posi * n_nega)
-    print(w, auc)
-    import matplotlib.pyplot as plt
     fig = plt.figure()
     ax = plt.axes(projection='3d')
     ax.scatter3D(x_tr[posi_indices, 0], x_tr[posi_indices, 1], x_tr[posi_indices, 2], 'r')
@@ -205,11 +221,6 @@ def main():
     data = pkl.load(open('t_sne_3d_pima.pkl', 'rb'))
     x_tr, y_tr = data[('original', 20)]['embeddings'], data[('original', 20)]['y_tr']
     auc_opt_3d(x_tr=x_tr, y_tr=y_tr)
-    exit()
-    for ind_model, model_name in enumerate(['original', 'norm', 'min_max', 'standard']):
-        for ind, perplexity in enumerate([10, 20, 30, 40, 50]):
-            x_tr, y_tr = data[(model_name, perplexity)]['embeddings'], data[(model_name, perplexity)]['y_tr']
-            auc_opt_3d(x_tr=x_tr, y_tr=y_tr)
 
 
 main()
