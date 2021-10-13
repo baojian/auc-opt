@@ -61,8 +61,11 @@ def get_real_data(dataset):
 def get_tsne_data(dataset, dtype='3d'):
     if dtype == '3d':
         data = pkl.load(open(root_path + '%s/t_sne_3d_%s.pkl' % (dataset, dataset), 'rb'))
-    else:
+    elif dtype == "2d":
         data = pkl.load(open(root_path + '%s/t_sne_2d_%s.pkl' % (dataset, dataset), 'rb'))
+    else:
+        print("error unknown data type")
+        return 0
     if dataset == 'fourclass':
         key = ('original', 50)
     else:
@@ -263,8 +266,16 @@ def get_data(dtype, dataset, num_trials, split_ratio, verbose=0):
             dataset == 'scene' or dataset == 'yeast_ml8' or dataset == 'yeast_cyt' or dataset == 'us_crime' or \
             dataset == 'isolet' or dataset == 'car_eval_34' or dataset == 'spectrometer' or \
             dataset == 'sick_euthyroid' or dataset == 'abalone_7' or dataset == 'pen_digits_5' or \
-            dataset == 'satimage_4' or dataset == 'optical_digits_8' or dataset == 'pima':  # 27
-        x_tr, y_tr = get_tsne_data(dataset=dataset) if dtype == 'tsne' else get_real_data(dataset=dataset)
+            dataset == 'satimage_4' or dataset == 'optical_digits_8' or dataset == 'pima':
+        if dtype == "real":
+            x_tr, y_tr = get_real_data(dataset=dataset)
+        elif dtype == "tsne-2d":
+            x_tr, y_tr = get_tsne_data(dataset=dataset, dtype="2d")
+        elif dtype == "tsne-3d":
+            x_tr, y_tr = get_tsne_data(dataset=dataset, dtype="3d")
+        else:
+            print(f"unknown type of dataset.")
+            return 0
         return _get_data(x_tr, y_tr, dataset, num_trials, split_ratio, verbose=verbose)
     else:
         print('error of data %s' % dataset)

@@ -12,7 +12,6 @@ from functools import reduce
 from os.path import join
 from scipy import stats
 import numpy as np
-from sklearn.utils.testing import ignore_warnings
 from sklearn.exceptions import ConvergenceWarning
 from data_preprocess import get_data
 
@@ -773,7 +772,7 @@ def parallel_by_method_dataset(dataset, method, num_cpus):
     else:
         root_path = '/network/rit/lab/ceashpc/bz383376/data/auc-logistic/'
     num_trials, split_ratio = 200, 0.5
-    data = get_data(dataset=dataset, num_trials=num_trials, split_ratio=split_ratio)
+    data = get_data(dtype='real', dataset=dataset, num_trials=num_trials, split_ratio=split_ratio)
     pool = multiprocessing.Pool(processes=num_cpus)
     if method == 'rank_boost':
         para_space = [(data, trial_i, method) for trial_i in range(num_trials)]

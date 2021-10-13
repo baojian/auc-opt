@@ -14,7 +14,6 @@ from functools import reduce
 
 from os.path import join
 from scipy import stats
-from sklearn.utils.testing import ignore_warnings
 from sklearn.exceptions import ConvergenceWarning
 from data_preprocess import get_data
 

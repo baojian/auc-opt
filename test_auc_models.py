@@ -10,7 +10,6 @@ from functools import reduce
 import numpy as np
 from sklearn.exceptions import ConvergenceWarning
 from data_preprocess import get_data
-from data_preprocess import get_data_path
 from sklearn.metrics import f1_score
 from sklearn.metrics import roc_auc_score
 from sklearn.metrics import accuracy_score
@@ -29,6 +28,7 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.preprocessing import Normalizer
 from sklearn.svm import SVC
 
+root_path = "/home/baojian/data/aistats22-auc-opt/"
 try:
     sys.path.append(os.getcwd())
     import libspam_l2
@@ -338,6 +338,7 @@ def get_standard_data(data, trial_id, std_type='StandardScaler'):
         std_normalize = Normalizer(norm='l2').fit(x_tr)
     else:
         std_normalize = StandardScaler().fit(x_tr)
+
     trans_x_tr = std_normalize.transform(np.array(x_tr))
     trans_x_te1 = std_normalize.transform(np.array(x_te1))
     trans_x_te2 = std_normalize.transform(np.array(x_te2))
@@ -608,7 +609,6 @@ def run_algo_adaboost(para):
     return {trial_id: re}
 
 
-@ignore_warnings(category=ConvergenceWarning)
 def run_algo_c_svm(para):
     data, trial_id, class_weight = para
     list_c, k_fold = np.logspace(-6, 6, 20), 5
@@ -875,7 +875,7 @@ def parallel_by_method_dataset(dtype, dataset, method, num_cpus):
     print(np.mean([results_pool[_][_][method]['te2']['auc'] for _ in range(210)]))
     print(np.mean([results_pool[_][_][method]['te3']['auc'] for _ in range(210)]))
     pkl.dump(reduce(lambda a, b: {**a, **b}, results_pool),
-             open(get_data_path() + '%s/results_%s_%s_%s.pkl' % (dataset, dtype, dataset, method), 'wb'))
+             open(root_path + '%s/results_%s_%s_%s.pkl' % (dataset, dtype, dataset, method), 'wb'))
 
 
 def main():
