@@ -10,10 +10,7 @@ from sklearn.manifold import TSNE
 from sklearn.preprocessing import StandardScaler
 from sklearn.preprocessing import Normalizer
 from sklearn.preprocessing import MinMaxScaler
-from functools import reduce
-import mkl
 
-mkl.set_num_threads(1)
 os.environ['OPENBLAS_NUM_THREADS'] = '1'
 os.environ['NUMEXPR_NUM_THREADS'] = '1'
 os.environ['MKL_NUM_THREADS'] = '1'

@@ -973,10 +973,13 @@ def test_icml21():
 
 def main():
     dtype = "tsne-3d"
-    num_cpus = 38
+    num_cpus = 25
     for dataset in [sys.argv[1]]:
-        for method in ["c_svm", "b_c_svm", "lr", "b_lr", "svm_perf_lin", "spauc", "spam"]:
-            parallel_by_method_dataset(dtype=dtype, dataset=dataset, method=method, num_cpus=num_cpus)
+        if sys.argv[2] == "baseline":
+            for method in ["c_svm", "b_c_svm", "lr", "b_lr", "svm_perf_lin", "spauc", "spam"]:
+                parallel_by_method_dataset(dtype=dtype, dataset=dataset, method=method, num_cpus=num_cpus)
+        if sys.argv[2] == "opt-auc":
+            parallel_by_method_dataset(dtype=dtype, dataset=dataset, method="opt_auc_3d", num_cpus=num_cpus)
 
 
 if __name__ == '__main__':
