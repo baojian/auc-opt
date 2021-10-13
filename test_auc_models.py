@@ -995,6 +995,5 @@ if __name__ == '__main__':
     num_cpus = 38
     # for dataset in []:
     # for dataset in ["car_eval_4", "coil_2000", "ecoli_imu", "fourclass", "german", "ionophere", "pima"]:
-    for dataset in ["abalone_19", "abalone_7", "arrhythmia_06", "australian", "banana", "breast_cancer",
-                    "car_eval_34", "cardio_3"]:
+    for dataset in ["cardio_3", "coil_2000", "ecoli_imu", "fourclass", "german", "ionophere", "pima"]:
         parallel_by_method_dataset(dtype=dtype, dataset=dataset, method="opt_auc_3d", num_cpus=num_cpus)
