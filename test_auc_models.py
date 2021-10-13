@@ -28,6 +28,8 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.preprocessing import Normalizer
 from sklearn.svm import SVC
 
+from auc_opt_3d import opt_auc_3d_algo
+
 root_path = "/home/baojian/data/aistats22-auc-opt/"
 try:
     sys.path.append(os.getcwd())
@@ -343,7 +345,16 @@ def get_standard_data(data, trial_id, std_type='StandardScaler'):
     trans_x_te1 = std_normalize.transform(np.array(x_te1))
     trans_x_te2 = std_normalize.transform(np.array(x_te2))
     trans_x_te3 = std_normalize.transform(np.array(x_te3))
-    return trans_x_tr, y_tr, trans_x_te1, y_te1, trans_x_te2, y_te2, trans_x_te3, y_te3
+    num_posi = 0
+    num_nega = 0
+    index = len(y_tr)
+    for i in range(len(y_tr)):
+        if num_posi * num_nega > 2000:
+            index = i
+            break
+        num_posi += (1 if y_tr[i] == 1. else 0)
+        num_nega += (1 if y_tr[i] == -1. else 0)
+    return trans_x_tr[:index], y_tr[:index], trans_x_te1, y_te1, trans_x_te2, y_te2, trans_x_te3, y_te3
 
 
 def get_standard_data_sub(data, trial_id, sub_tr_ind, sub_te_ind, std_type='StandardScaler'):
@@ -382,6 +393,24 @@ def run_algo_opt_auc(para):
     return {trial_id: re}
 
 
+def run_algo_opt_auc_3d(para):
+    start_time = time.time()
+    data, trial_id = para
+    method = 'opt_auc_3d'
+    start_tr_time = time.time()
+    x_tr, y_tr, x_te1, y_te1, x_te2, y_te2, x_te3, y_te3 = get_standard_data(data, trial_id)
+    w, auc, train_time = opt_auc_3d_algo(
+        np.asarray(x_tr, dtype=np.float64), np.asarray(y_tr, dtype=np.float64))
+    tr_scores = np.dot(x_tr, w)
+    te1_scores = np.dot(x_te1, w)
+    te2_scores = np.dot(x_te2, w)
+    te3_scores = np.dot(x_te3, w)
+    re = pred_tr_te_auc(method, trial_id, y_tr, y_te1, y_te2, y_te3,
+                        tr_scores, te1_scores, te2_scores, te3_scores, start_time, start_tr_time)
+    re[method]['w'] = w
+    return {trial_id: re}
+
+
 def run_algo_rank_boost(para):
     start_time = time.time()
     data, trial_id, method = para
@@ -394,8 +423,11 @@ def run_algo_rank_boost(para):
             sub_x_tr, sub_y_tr, sub_x_te, sub_y_te = get_standard_data_sub(data, trial_id, sub_tr_ind, sub_te_ind)
             alpha, threshold, rankfeat, _, run_time = c_rank_boost(
                 np.asarray(sub_x_tr, dtype=np.float64), np.asarray(sub_y_tr, dtype=np.float64), int(t))
-            auc_matrix[ind_xi][ind] = roc_auc_score(
-                y_true=sub_y_te, y_score=decision_func_rank_boost(sub_x_te, alpha, threshold, rankfeat))
+            try:
+                auc_matrix[ind_xi][ind] = roc_auc_score(
+                    y_true=sub_y_te, y_score=decision_func_rank_boost(sub_x_te, alpha, threshold, rankfeat))
+            except ValueError:
+                pass
     start_tr_time = time.time()
     best_t = list_t_iter[int(np.argmax(np.mean(auc_matrix, axis=1)))]
     alpha, threshold, rankfeat, _, run_time = c_rank_boost(
@@ -439,7 +471,11 @@ def run_algo_spam_l2(para):
             if np.isfinite(np.asarray(wt)).all():
                 scores = np.dot(sub_x_te, wt)
                 if np.isfinite(np.asarray(scores)).all():
-                    auc = roc_auc_score(y_true=sub_y_te, y_score=scores)
+                    try:
+                        auc = roc_auc_score(y_true=sub_y_te, y_score=scores)
+                    except ValueError:
+                        auc = 0.0
+                        pass
                 else:
                     auc = 0.0
             else:
@@ -492,7 +528,11 @@ def run_algo_spauc_l2(para):
             if np.isfinite(np.asarray(wt)).all():
                 scores = np.dot(sub_x_te, wt)
                 if np.isfinite(np.asarray(scores)).all():
-                    auc = roc_auc_score(y_true=sub_y_te, y_score=scores)
+                    try:
+                        auc = roc_auc_score(y_true=sub_y_te, y_score=scores)
+                    except ValueError:
+                        auc = 0.0
+                        pass
                 else:
                     auc = 0.0
             else:
@@ -564,7 +604,11 @@ def run_algo_svm_perf(para):
         for ind, (sub_tr_ind, sub_te_ind) in enumerate(kf.split(np.zeros(shape=(len(x_tr), 1)))):
             sub_x_tr, sub_y_tr, sub_x_te, sub_y_te = get_standard_data_sub(data, trial_id, sub_tr_ind, sub_te_ind)
             tr_scores, te_scores, _ = cmd_svm_perf(sub_x_tr, sub_y_tr, sub_x_te, sub_y_te, para_xi, kernel)
-            auc_matrix[ind_xi][ind] = roc_auc_score(y_true=sub_y_te, y_score=te_scores)
+            try:
+                auc_matrix[ind_xi][ind] = roc_auc_score(y_true=sub_y_te, y_score=te_scores)
+            except ValueError:
+                pass
+
     best_c = list_c[int(np.argmax(np.mean(auc_matrix, axis=1)))]
     start_tr_time = time.time()
     tr_scores, te1_scores, model = cmd_svm_perf(x_tr, y_tr, x_te1, y_te1, best_c, kernel)
@@ -591,8 +635,11 @@ def run_algo_adaboost(para):
                                 learning_rate=0.1, algorithm='SAMME.R', random_state=trial_id)
             sub_x_tr, sub_y_tr, sub_x_te, sub_y_te = get_standard_data_sub(data, trial_id, sub_tr_ind, sub_te_ind)
             adaboost.fit(X=sub_x_tr, y=sub_y_tr)
-            auc_matrix[ind_xi][ind] = roc_auc_score(
-                y_true=sub_y_te, y_score=adaboost.decision_function(X=sub_x_te))
+            try:
+                auc_matrix[ind_xi][ind] = roc_auc_score(
+                    y_true=sub_y_te, y_score=adaboost.decision_function(X=sub_x_te))
+            except ValueError:
+                pass
     start_tr_time = time.time()
     best_n_est = list_n_est[int(np.argmax(np.mean(auc_matrix, axis=1)))]
     adaboost = AdaBoost(base_estimator=None, n_estimators=best_n_est,
@@ -625,8 +672,11 @@ def run_algo_c_svm(para):
                           random_state=trial_id, max_iter=5000)
             sub_x_tr, sub_y_tr, sub_x_te, sub_y_te = get_standard_data_sub(data, trial_id, sub_tr_ind, sub_te_ind)
             lin_svm.fit(X=sub_x_tr, y=sub_y_tr)
-            auc_matrix[ind_xi][ind] = roc_auc_score(
-                y_true=sub_y_te, y_score=lin_svm.decision_function(X=sub_x_te))
+            try:
+                auc_matrix[ind_xi][ind] = roc_auc_score(
+                    y_true=sub_y_te, y_score=lin_svm.decision_function(X=sub_x_te))
+            except ValueError:
+                pass
 
     start_tr_time = time.time()
     best_c = list_c[int(np.argmax(np.mean(auc_matrix, axis=1)))]
@@ -667,7 +717,10 @@ def run_algo_rbf_svm(para):
             sub_x_tr, sub_y_tr, sub_x_te, sub_y_te = get_standard_data_sub(data, trial_id, sub_tr_ind, sub_te_ind)
             rbf_svm.fit(X=sub_x_tr, y=sub_y_tr)
             scores = rbf_svm.decision_function(X=sub_x_te)
-            auc_matrix[ind_xi][ind] = roc_auc_score(y_true=sub_y_te, y_score=scores)
+            try:
+                auc_matrix[ind_xi][ind] = roc_auc_score(y_true=sub_y_te, y_score=scores)
+            except ValueError:
+                pass
     start_tr_time = time.time()
     best_c = list_c[int(np.argmax(np.mean(auc_matrix, axis=1)))]
     rbf_svm = SVC(C=best_c, kernel='rbf', degree=3, gamma='scale',
@@ -703,8 +756,11 @@ def run_algo_lr(para):
                     warm_start=False, n_jobs=None, l1_ratio=None)
             sub_x_tr, sub_y_tr, sub_x_te, sub_y_te = get_standard_data_sub(data, trial_id, sub_tr_ind, sub_te_ind)
             lr.fit(X=sub_x_tr, y=sub_y_tr)
-            auc = roc_auc_score(y_true=sub_y_te, y_score=lr.decision_function(X=sub_x_te))
-            auc_matrix[ind_xi][ind] = auc
+            try:
+                auc = roc_auc_score(y_true=sub_y_te, y_score=lr.decision_function(X=sub_x_te))
+                auc_matrix[ind_xi][ind] = auc
+            except ValueError:
+                pass
 
     best_c = list_c[int(np.argmax(np.mean(auc_matrix, axis=1)))]
     start_tr_time = time.time()
@@ -749,8 +805,11 @@ def run_algo_rf(para):
                 verbose=0, warm_start=False, class_weight=class_weight, ccp_alpha=0.0, max_samples=None)
             sub_x_tr, sub_y_tr, sub_x_te, sub_y_te = get_standard_data_sub(data, trial_id, sub_tr_ind, sub_te_ind)
             rand_forest.fit(X=sub_x_tr, y=sub_y_tr)
-            auc_matrix[ind_xi][ind] = roc_auc_score(
-                y_true=sub_y_te, y_score=rand_forest.predict_proba(X=sub_x_te)[:, 1])
+            try:
+                auc_matrix[ind_xi][ind] = roc_auc_score(
+                    y_true=sub_y_te, y_score=rand_forest.predict_proba(X=sub_x_te)[:, 1])
+            except ValueError:
+                pass
     start_tr_time = time.time()
     best_n_est = list_n_est[int(np.argmax(np.mean(auc_matrix, axis=1)))]
     rand_forest = RF(
@@ -792,8 +851,11 @@ def run_algo_gb(para):
                 validation_fraction=0.0, n_iter_no_change=None, tol=1e-4, ccp_alpha=0.0)
             sub_x_tr, sub_y_tr, sub_x_te, sub_y_te = get_standard_data_sub(data, trial_id, sub_tr_ind, sub_te_ind)
             grad_boost.fit(X=sub_x_tr, y=sub_y_tr)
-            auc_matrix[ind_xi][ind] = roc_auc_score(
-                y_true=sub_y_te, y_score=grad_boost.predict_proba(X=sub_x_te)[:, 1])
+            try:
+                auc_matrix[ind_xi][ind] = roc_auc_score(
+                    y_true=sub_y_te, y_score=grad_boost.predict_proba(X=sub_x_te)[:, 1])
+            except ValueError:
+                pass
     start_tr_time = time.time()
     best_n_est = list_n_est[int(np.argmax(np.mean(auc_matrix, axis=1)))]
     grad_boost = GB(
@@ -815,7 +877,7 @@ def run_algo_gb(para):
 
 
 def parallel_by_method_dataset(dtype, dataset, method, num_cpus):
-    num_trials, split_ratio = 210, 0.5
+    num_trials, split_ratio = 50, 0.5
     data = get_data(dtype=dtype, dataset=dataset, num_trials=num_trials, split_ratio=split_ratio)
     pool = multiprocessing.Pool(processes=num_cpus)
     if method == 'rank_boost':
@@ -827,6 +889,9 @@ def parallel_by_method_dataset(dtype, dataset, method, num_cpus):
     elif method == 'opt_auc':
         para_space = [(data, trial_i) for trial_i in range(num_trials)]
         results_pool = pool.map(run_algo_opt_auc, para_space)
+    elif method == 'opt_auc_3d':
+        para_space = [(data, trial_i) for trial_i in range(num_trials)]
+        results_pool = pool.map(run_algo_opt_auc_3d, para_space)
     elif method == 'c_svm':
         para_space = [(data, trial_i, None) for trial_i in range(num_trials)]
         results_pool = pool.map(run_algo_c_svm, para_space)
@@ -870,15 +935,15 @@ def parallel_by_method_dataset(dtype, dataset, method, num_cpus):
         results_pool = None
     pool.close()
     pool.join()
-    print(np.mean([results_pool[_][_][method]['tr']['auc'] for _ in range(210)]))
-    print(np.mean([results_pool[_][_][method]['te1']['auc'] for _ in range(210)]))
-    print(np.mean([results_pool[_][_][method]['te2']['auc'] for _ in range(210)]))
-    print(np.mean([results_pool[_][_][method]['te3']['auc'] for _ in range(210)]))
+    print(np.mean([results_pool[_][_][method]['tr']['auc'] for _ in range(num_trials)]))
+    print(np.mean([results_pool[_][_][method]['te1']['auc'] for _ in range(num_trials)]))
+    print(np.mean([results_pool[_][_][method]['te2']['auc'] for _ in range(num_trials)]))
+    print(np.mean([results_pool[_][_][method]['te3']['auc'] for _ in range(num_trials)]))
     pkl.dump(reduce(lambda a, b: {**a, **b}, results_pool),
-             open(root_path + '%s/results_%s_%s_%s.pkl' % (dataset, dtype, dataset, method), 'wb'))
+             open(root_path + 'datasets/%s/results_%s_%s_%s.pkl' % (dataset, dtype, dataset, method), 'wb'))
 
 
-def main():
+def test_icml21():
     if sys.argv[1] == 'single':
         parallel_by_method_dataset(dtype=sys.argv[2], dataset=sys.argv[3],
                                    method=sys.argv[4], num_cpus=int(sys.argv[5]))
@@ -904,6 +969,14 @@ def main():
         for method in list_method:
             parallel_by_method_dataset(dtype=sys.argv[2], dataset=sys.argv[3],
                                        method=method, num_cpus=int(sys.argv[4]))
+
+
+def main():
+    dtype = "tsne-3d"
+    num_cpus = 20
+    for dataset in ["abalone_7"]:
+        for method in ["c_svm", "b_c_svm", "lr", "b_lr", "svm_perf_lin", "spauc", "spam"]:
+            parallel_by_method_dataset(dtype=dtype, dataset=dataset, method=method, num_cpus=num_cpus)
 
 
 if __name__ == '__main__':

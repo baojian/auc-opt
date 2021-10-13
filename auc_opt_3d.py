@@ -1,27 +1,7 @@
 # -*- coding: utf-8 -*-
-import os
-import sys
-import time
 import functools
 import numpy as np
-from numba import jit
 from numpy.linalg import norm
-import matplotlib.pyplot as plt
-from sklearn.svm import LinearSVC
-from sklearn.metrics import log_loss
-from sklearn.metrics import f1_score
-from sklearn.metrics import roc_curve
-from sklearn.metrics import roc_auc_score
-from sklearn.linear_model import Perceptron
-from sklearn.linear_model import RidgeClassifierCV
-from sklearn.metrics import balanced_accuracy_score
-from sklearn.linear_model import LogisticRegression
-from sklearn.utils.extmath import softmax
-import multiprocessing
-import pickle as pkl
-
-np.random.seed(17)
-precision_eps = 1e-15
 
 
 def project_3d_2d_coordinates(normal, points):
@@ -64,7 +44,7 @@ def sorting_rays(list_rays: list, u0, r0):
     return list_rays
 
 
-def open_hemisphere_2d(points, sp, u, cp):
+def open_hemisphere_2d(points, sp, u, cp, precision_eps=1e-15):
     points_2d = project_3d_2d_coordinates(normal=u, points=cp)
     rays = []
     u0 = points_2d[0]
@@ -102,10 +82,11 @@ def open_hemisphere_2d(points, sp, u, cp):
     return opt_x, opt_auc
 
 
-def open_hemisphere_3d(points: list):
+def open_hemisphere_3d(points: list, precision_eps=1e-15):
     """
     each point in points set are unit vector in 3-dimension.
     :param points:
+    :param precision_eps
     :return:
     """
     for point in points:
@@ -142,35 +123,18 @@ def open_hemisphere_3d(points: list):
             if auc_val1 > auc_val:
                 opt_x, opt_auc = opt_x1, auc_val1
         auc = np.sum(np.array(np.dot(points, opt_x)) > 0., axis=0) / (len(points) * 1.)
-        print(f"index: {ind} opt-x: {opt_x} AUC-val: {auc}")
+        print(f"index: {ind} points: {len(points)} opt-x: {opt_x} AUC-val: {auc}")
     return opt_x, opt_auc
 
 
-def test_logistic(x_tr, posi_indices, nega_indices, num_samples):
-    sub_tr_x = list(x_tr[posi_indices[:num_samples], :])
-    sub_tr_x.extend(list(x_tr[nega_indices[:num_samples], :]))
-    sub_tr_y = list(np.ones(num_samples))
-    sub_tr_y.extend(list(-np.ones(num_samples)))
-    lr = LogisticRegression(  # without ell_2 regularization.
-        penalty='none', dual=False, tol=1e-8, C=1.0, fit_intercept=True,
-        intercept_scaling=1, class_weight=None, solver='lbfgs', max_iter=10000, multi_class='ovr', verbose=0,
-        warm_start=False, n_jobs=1, l1_ratio=None)
-    lr.fit(X=np.asarray(sub_tr_x), y=sub_tr_y)
-    print(roc_auc_score(y_true=sub_tr_y, y_score=lr.decision_function(X=np.asarray(sub_tr_x))))
-
-
-def test_logistic_regression():
-    pass
-
-
-def auc_opt_3d(x_tr, y_tr, num_samples=100):
+def opt_auc_3d_algo(x_tr, y_tr, precision_eps=1e-15):
     assert 3 == x_tr.shape[1]
     x_tr = np.asarray(x_tr, dtype=np.float64)
     posi_indices = [ind for ind, _ in enumerate(y_tr) if _ > 0.]
     nega_indices = [ind for ind, _ in enumerate(y_tr) if _ < 0.]
     set_k = []
-    for i in posi_indices[:num_samples]:
-        for j in nega_indices[:num_samples]:
+    for i in posi_indices:
+        for j in nega_indices:
             point = x_tr[i] - x_tr[j]
             if norm(point) <= precision_eps:
                 # ignore the co-linear pair
@@ -179,12 +143,3 @@ def auc_opt_3d(x_tr, y_tr, num_samples=100):
             set_k.append(point)
     w, opt_auc = open_hemisphere_3d(points=set_k)
     return w, opt_auc
-
-
-def main():
-    data = pkl.load(open('t_sne_3d_pima.pkl', 'rb'))
-    x_tr, y_tr = data[('original', 20)]['embeddings'], data[('original', 20)]['y_tr']
-    auc_opt_3d(x_tr=x_tr, y_tr=y_tr)
-
-
-main()
