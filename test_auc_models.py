@@ -973,8 +973,8 @@ def test_icml21():
 
 def main():
     dtype = "tsne-3d"
-    num_cpus = 20
-    for dataset in ["abalone_7"]:
+    num_cpus = 38
+    for dataset in [sys.argv[1]]:
         for method in ["c_svm", "b_c_svm", "lr", "b_lr", "svm_perf_lin", "spauc", "spam"]:
             parallel_by_method_dataset(dtype=dtype, dataset=dataset, method=method, num_cpus=num_cpus)
 
