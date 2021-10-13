@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from numba import jit
 import os
 import sys
 import time
@@ -18,68 +19,10 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.utils.extmath import softmax
 import multiprocessing
 import pickle as pkl
-from numba import jit
 
 precision_eps = 1e-15
 
 
-def project_3d_2d(u, points: list):
-    """
-    Given a normal vector, project the points into this plane
-    :param u:
-    :param points: list of points
-    :return:
-    """
-    u_norm = norm(u) ** 2.
-    assert u_norm != 0.0  # normal vector should be nonzero.
-    u1, u2, u3 = u[0], u[1], u[2]
-    e11 = np.asarray([u2, -u1, 0])
-    e22 = np.asarray([u1 * u3, u2 * u3, -(u1 ** 2. + u2 ** 2.)])
-    e1 = e11 / norm(e11)
-    e2 = e22 / norm(e22)
-    points_2d = []
-    for point in points:
-        point_2d = [np.dot(e1, point), np.dot(e2, point)]
-        points_2d.append(point_2d)
-        print(norm(point_2d))
-    return points_2d
-
-
-def project_2d_3d(u, points_2d: list):
-    u_norm = norm(u) ** 2.
-    assert u_norm != 0.0  # normal vector should be nonzero.
-    u1, u2, u3 = u[0], u[1], u[2]
-    e11 = np.asarray([u2, -u1, 0])
-    e22 = np.asarray([u1 * u3, u2 * u3, -(u1 ** 2. + u2 ** 2.)])
-    e1 = e11 / norm(e11)
-    e2 = e22 / norm(e22)
-    points_3d = []
-    for point_2d in points_2d:
-        points_3d.append(point_2d[0] * e1 + point_2d[1] * e2)
-    return points_3d
-
-
-def project_points(u, points):
-    assert norm(u) != 0.0
-    u_norm = norm(u) ** 2.
-    return [p - (np.dot(p, u) / u_norm) * u for p in points]
-
-
-def check_original_projected(points, u, cp):
-    for i in range(1000):
-        x = np.random.normal(0., 1., 3)
-        x[2] = -(u[0] * x[0] + u[1] * x[1]) / u[2]
-        val1 = np.sum(np.array(np.dot(points, x)) > 0., axis=0)
-        val2 = np.sum(np.array(np.dot(cp, x)) > 0., axis=0)
-        print(val1, val2)
-
-
-def triangle_normal(pa, pb, pc):
-    n = np.cross(pc - pa, pb - pa)
-    return n / norm(n)
-
-
-@jit(nopython=True)
 def project_3d_2d_coordinates(normal, points):
     """
     :param normal: the normal vector
@@ -87,7 +30,7 @@ def project_3d_2d_coordinates(normal, points):
     :return:
     """
     assert norm(normal) != 0.
-    u = np.asarray([normal[1], -normal[0], 0])
+    u = np.asarray([normal[1], -normal[0], 0.])
     u = u / norm(u)
     v = np.cross(u, normal)
     v = v / norm(v)
@@ -96,26 +39,6 @@ def project_3d_2d_coordinates(normal, points):
     return mapped_points
 
 
-def project_2d_coordinates_3d(points_2d, normal):
-    # Notice should be consistent with project_3d_2d_coordinates
-    u = np.asarray([normal[1], -normal[0], 0])
-    u = u / norm(u)
-    v = np.cross(u, normal)
-    v = v / norm(v)
-    return [a * u + b * v for (a, b) in points_2d]
-
-
-def project_back(normal, p):
-    assert len(p) == 2
-    assert len(normal) == 3
-    u = np.asarray([normal[1], -normal[0], 0])
-    u = u / norm(u)
-    v = np.cross(u, normal)
-    v = v / norm(v)
-    return p[0] * u + p[1] * v
-
-
-@jit(nopython=True)
 def sorting_rays(list_rays: list, u0, r0):
     def compare(r1, r2):
         u1, sign1, _, p1, dot_p1 = r1
@@ -140,9 +63,7 @@ def sorting_rays(list_rays: list, u0, r0):
     return list_rays
 
 
-@jit(nopython=True)
-def open_hemisphere_2d(points, sp, u, cp, verbose=0):
-    assert len(points) == len(cp)
+def open_hemisphere_2d(points, sp, u, cp):
     points_2d = project_3d_2d_coordinates(normal=u, points=cp)
     rays = []
     u0 = points_2d[0]
@@ -165,34 +86,25 @@ def open_hemisphere_2d(points, sp, u, cp, verbose=0):
         aq_val = ap_val + posi_val - nega_val
         if aq_val > max_a_val:
             max_a_val, opt_x = aq_val, np.asarray(pi) + np.asarray(pii)
-            if verbose > 0:
-                print(np.sum(np.array(np.dot(points_2d, opt_x)), axis=0),
-                      np.sum(np.array(np.dot(points_2d, opt_x)) > 0., axis=0),
-                      np.sum(np.array(np.dot(cp, project_back(u, opt_x))) > 0., axis=0),
-                      np.sum(np.array(np.dot(points, project_back(u, opt_x))) > 0., axis=0))
         posi_val = (1. if sign2 == 0 and sp2 == 0 else 0.)
         nega_val = (1. if sign2 == 1 and sp2 == 1 else 0.)
         ap_val = aq_val + posi_val - nega_val
         if ap_val > max_a_val:
             max_a_val, opt_x = ap_val, np.asarray(pii)
-            if verbose > 0:
-                print(np.sum(np.array(np.dot(points_2d, opt_x)), axis=0),
-                      np.sum(np.array(np.dot(points_2d, opt_x)) > 0., axis=0),
-                      np.sum(np.array(np.dot(cp, project_back(u, opt_x))) > 0., axis=0),
-                      np.sum(np.array(np.dot(points, project_back(u, opt_x))) > 0., axis=0))
-    opt_x = project_back(u, opt_x)
-    if verbose > 0:
-        print(f"2d-case: {np.sum(np.array(np.dot(cp, opt_x)) > 0., axis=0) / len(points)}")
-        print(f"2d-case: {np.sum(np.array(np.dot(points, opt_x)) > 0., axis=0) / len(points)}")
+    # project 2d points back to 3d.
+    uu = np.asarray([u[1], -u[0], 0.])
+    uu = uu / norm(uu)
+    vv = np.cross(uu, u)
+    vv = vv / norm(vv)
+    opt_x = opt_x[0] * uu + opt_x[1] * vv
     opt_auc = np.sum(np.array(np.dot(points, opt_x)) > 0., axis=0) / len(points)
     return opt_x, opt_auc
 
 
-def open_hemisphere_3d(points: list, verbose=0):
+def open_hemisphere_3d(points: list):
     """
     each point in points set are unit vector in 3-dimension.
     :param points:
-    :param verbose
     :return:
     """
     for point in points:
@@ -203,14 +115,12 @@ def open_hemisphere_3d(points: list, verbose=0):
     for ind, u in enumerate(points):
         # project all points to plane defined by its normal
         # u notice that c_prime may contain zero vectors.
-        cp = project_points(u, points)
+        u_norm = norm(u) ** 2.
+        cp = [p - (np.dot(p, u) / u_norm) * u for p in points]
         sp = [1.] * len(points)
         yu1, auc_val = open_hemisphere_2d(points, sp, u, cp)
         if opt_auc < auc_val:
             opt_x, opt_auc = yu1, auc_val
-            print(opt_auc, opt_auc / 2500., opt_x,
-                  f"expected: {np.sum(np.array(np.dot(cp, yu1)) > 0., axis=0)}",
-                  f"expected: {np.sum(np.array(np.dot(points, yu1)) > 0., axis=0)}")
         sp = [1. if np.dot(_, u) <= 0.0 else 0. for _ in points]
         yu2, auc_val = open_hemisphere_2d(points, sp, u, cp)
         if opt_auc < auc_val:
@@ -230,20 +140,16 @@ def open_hemisphere_3d(points: list, verbose=0):
             auc_val1 = np.sum(np.array(np.dot(points, opt_x1)) > 0., axis=0) / len(points)
             if auc_val1 > auc_val:
                 opt_x, opt_auc = opt_x1, auc_val1
-            if verbose > 0:
-                print(opt_auc, opt_auc / 2500., opt_x,
-                      f"expected: {np.sum(np.array(np.dot(cp, yu2)) > 0., axis=0)}",
-                      f"expected: {np.sum(np.array(np.dot(points, yu2)) > 0., axis=0)}")
         auc = np.sum(np.array(np.dot(points, opt_x)) > 0., axis=0) / (len(points) * 1.)
         print(f"index: {ind} opt-x: {opt_x} AUC-val: {auc}")
     return opt_x, opt_auc
 
 
-def test_logistic(x_tr, posi_indices, nega_indices):
-    sub_tr_x = list(x_tr[posi_indices[:50], :])
-    sub_tr_x.extend(list(x_tr[nega_indices[:50], :]))
-    sub_tr_y = list(np.ones(50))
-    sub_tr_y.extend(list(-np.ones(50)))
+def test_logistic(x_tr, posi_indices, nega_indices, num_samples):
+    sub_tr_x = list(x_tr[posi_indices[:num_samples], :])
+    sub_tr_x.extend(list(x_tr[nega_indices[:num_samples], :]))
+    sub_tr_y = list(np.ones(num_samples))
+    sub_tr_y.extend(list(-np.ones(num_samples)))
     lr = LogisticRegression(  # without ell_2 regularization.
         penalty='none', dual=False, tol=1e-8, C=1.0, fit_intercept=True,
         intercept_scaling=1, class_weight=None, solver='lbfgs', max_iter=10000, multi_class='ovr', verbose=0,
@@ -256,23 +162,23 @@ def test_logistic_regression():
     pass
 
 
-def auc_opt_3d(x_tr, y_tr):
+def auc_opt_3d(x_tr, y_tr, num_samples=100):
     np.random.seed(17)
     assert 3 == x_tr.shape[1]
     x_tr = np.asarray(x_tr, dtype=np.float64)
     posi_indices = [ind for ind, _ in enumerate(y_tr) if _ > 0.]
     nega_indices = [ind for ind, _ in enumerate(y_tr) if _ < 0.]
-    test_logistic(x_tr, posi_indices, nega_indices)
+    test_logistic(x_tr, posi_indices, nega_indices, num_samples=num_samples)
     set_k = []
-    for i in posi_indices[:50]:
-        for j in nega_indices[:50]:
+    for i in posi_indices[:num_samples]:
+        for j in nega_indices[:num_samples]:
             point = x_tr[i] - x_tr[j]
-            if norm(point) <= 1e-15:
+            if norm(point) <= precision_eps:
                 # ignore the co-linear pair
                 continue
             point = point / norm(point)
             set_k.append(point)
-    w, ax = open_hemisphere_3d(points=set_k)
+    w, opt_auc = open_hemisphere_3d(points=set_k)
     print(f"w: {w} {np.sum(np.dot(set_k, w) > 0, axis=0)}")
     ax = plt.axes(projection='3d')
     ax.scatter3D(x_tr[posi_indices, 0], x_tr[posi_indices, 1], x_tr[posi_indices, 2], 'r')
