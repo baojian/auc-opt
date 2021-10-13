@@ -2,21 +2,24 @@
 import os
 import sys
 import time
-import matplotlib.pyplot as plt
-import numpy as np
 import functools
-from sklearn.metrics import roc_auc_score
-from sklearn.metrics import roc_curve
-from sklearn.metrics import balanced_accuracy_score
+import numpy as np
+from numpy.linalg import norm
+import matplotlib.pyplot as plt
+from sklearn.svm import LinearSVC
 from sklearn.metrics import log_loss
 from sklearn.metrics import f1_score
-from sklearn.linear_model import LogisticRegression
-from sklearn.svm import LinearSVC
+from sklearn.metrics import roc_curve
+from sklearn.metrics import roc_auc_score
 from sklearn.linear_model import Perceptron
 from sklearn.linear_model import RidgeClassifierCV
+from sklearn.metrics import balanced_accuracy_score
+from sklearn.linear_model import LogisticRegression
 from sklearn.utils.extmath import softmax
 import multiprocessing
 import pickle as pkl
+
+precision_eps = 1e-15
 
 
 def project_3d_2d(u, points: list):
@@ -26,29 +29,29 @@ def project_3d_2d(u, points: list):
     :param points: list of points
     :return:
     """
-    u_norm = np.linalg.norm(u) ** 2.
+    u_norm = norm(u) ** 2.
     assert u_norm != 0.0  # normal vector should be nonzero.
     u1, u2, u3 = u[0], u[1], u[2]
     e11 = np.asarray([u2, -u1, 0])
     e22 = np.asarray([u1 * u3, u2 * u3, -(u1 ** 2. + u2 ** 2.)])
-    e1 = e11 / np.linalg.norm(e11)
-    e2 = e22 / np.linalg.norm(e22)
+    e1 = e11 / norm(e11)
+    e2 = e22 / norm(e22)
     points_2d = []
     for point in points:
         point_2d = [np.dot(e1, point), np.dot(e2, point)]
         points_2d.append(point_2d)
-        print(np.linalg.norm(point_2d))
+        print(norm(point_2d))
     return points_2d
 
 
 def project_2d_3d(u, points_2d: list):
-    u_norm = np.linalg.norm(u) ** 2.
+    u_norm = norm(u) ** 2.
     assert u_norm != 0.0  # normal vector should be nonzero.
     u1, u2, u3 = u[0], u[1], u[2]
     e11 = np.asarray([u2, -u1, 0])
     e22 = np.asarray([u1 * u3, u2 * u3, -(u1 ** 2. + u2 ** 2.)])
-    e1 = e11 / np.linalg.norm(e11)
-    e2 = e22 / np.linalg.norm(e22)
+    e1 = e11 / norm(e11)
+    e2 = e22 / norm(e22)
     points_3d = []
     for point_2d in points_2d:
         points_3d.append(point_2d[0] * e1 + point_2d[1] * e2)
@@ -58,8 +61,8 @@ def project_2d_3d(u, points_2d: list):
 def sorting_rays(list_rays: list, u0, r0):
     def compare(r1, r2):
         u1, sign1, _ = r1
-        p1 = (u1[1], -u1[0]) if sign1 == "nega" else (-u1[1], u1[0])
         u2, sign2, _ = r2
+        p1 = (u1[1], -u1[0]) if sign1 == "nega" else (-u1[1], u1[0])
         p2 = (u2[1], -u2[0]) if sign2 == "nega" else (-u2[1], u2[0])
         dot_p1 = np.dot(p1, u0)
         dot_p2 = np.dot(p2, u0)
@@ -73,8 +76,8 @@ def sorting_rays(list_rays: list, u0, r0):
             else:
                 return 1
         else:
-            if (r1[1] == "nega" and np.dot(p2, u1) > 0.) or \
-                    (r1[1] == "posi" and np.dot(p2, u2) < 0.):
+            pu = np.dot(p2, u1)
+            if (r1[1] == "nega" and pu > 0.) or (r1[1] == "posi" and pu < 0.):
                 return -1
             else:
                 return 1
@@ -84,12 +87,9 @@ def sorting_rays(list_rays: list, u0, r0):
 
 
 def project_points(u, points):
-    assert np.linalg.norm(u) != 0.0
-    u_norm = np.linalg.norm(u) ** 2.
-    c_prime = []
-    for p in points:
-        c_prime.append(p - (np.dot(p, u) / u_norm) * u)
-    return c_prime
+    assert norm(u) != 0.0
+    u_norm = norm(u) ** 2.
+    return [p - (np.dot(p, u) / u_norm) * u for p in points]
 
 
 def check_projection(u, points, eps=1e-15):
@@ -113,13 +113,58 @@ def check_original_projected(points, u, cp):
         print(val1, val2)
 
 
+def triangle_normal(pa, pb, pc):
+    n = np.cross(pc - pa, pb - pa)
+    return n / norm(n)
+
+
+def project_3d_2d_coordinates(normal, points):
+    """
+    :param normal: the normal vector
+    :param points: the points on this plane
+    :return:
+    """
+    assert norm(normal) != 0.
+    # all points are on the plane.
+    for item in points:
+        assert np.abs(np.dot(item, normal)) <= precision_eps
+    u = np.asarray([normal[1], -normal[0], 0])
+    u = u / norm(u)
+    v = np.cross(u, normal)
+    v = v / norm(v)
+    mapped_points = [(np.dot(p, u), np.dot(p, v)) for p in points]
+    return mapped_points
+
+
+def project_2d_coordinates_3d(points_2d, normal):
+    # Notice should be consistent with project_3d_2d_coordinates
+    u = np.asarray([normal[1], -normal[0], 0])
+    u = u / norm(u)
+    v = np.cross(u, normal)
+    v = v / norm(v)
+    return [a * u + b * v for (a, b) in points_2d]
+
+
+def project_back(normal, p):
+    assert len(p) == 2
+    assert len(normal) == 3
+    u = np.asarray([normal[1], -normal[0], 0])
+    u = u / norm(u)
+    v = np.cross(u, normal)
+    v = v / norm(v)
+    return p[0] * u + p[1] * v
+
+
 def open_hemisphere_2d(points, sp, u, cp):
     assert len(points) == len(cp)
-    points_2d = project_3d_2d(u, cp)
+    points_2d = project_3d_2d_coordinates(normal=u, points=cp)
+    points_back = project_2d_coordinates_3d(points_2d=points_2d, normal=u)
+    for i in range(10):
+        print(cp[i], points_back[i])
     rays = []
     for ind, _ in enumerate(points_2d):
         # ignore zeros
-        if np.linalg.norm(_) <= 1e-15:
+        if norm(_) <= precision_eps:
             continue
         rays.append([_, "nega", sp[ind]])
         rays.append([_, "posi", sp[ind]])
@@ -128,6 +173,7 @@ def open_hemisphere_2d(points, sp, u, cp):
     rays = sorting_rays(list_rays=rays, u0=u0, r0=r0)
     p0 = rays[0][0]
     ap_val = np.sum(np.array(np.dot(points_2d, p0)) > 0., axis=0)
+    ap_val2 = np.sum(np.array(np.dot(cp, project_back(u, p0))) > 0., axis=0)
     max_a_val, opt_x = ap_val, np.asarray(p0)
     s2 = len(rays)
     ap_vals = [ap_val]
@@ -151,7 +197,6 @@ def open_hemisphere_2d(points, sp, u, cp):
 
 
 def open_hemisphere_3d(points: list):
-    eps = 1.e-15
     """
     each point in points set are unit vector in 3-dimension.
     :param points:
@@ -159,12 +204,12 @@ def open_hemisphere_3d(points: list):
     """
     for point in points:
         assert len(point) == 3
-        assert np.abs(np.linalg.norm(point) - 1.) <= eps
+        assert np.abs(norm(point) - 1.) <= precision_eps
     opt_val, opt_x = -1.0, np.zeros(3)
     # all nonzero points
     for u in points:
-        # project all points to plane defined by its normal u
-        # notice that c_prime may contain zero vectors.
+        # project all points to plane defined by its normal
+        # u notice that c_prime may contain zero vectors.
         cp = project_points(u, points)
         sp = [1. for ind, _ in enumerate(points)]
         yu1, a1_val, points_2d = open_hemisphere_2d(points, sp, u, cp)
@@ -195,19 +240,19 @@ def test_logistic(x_tr, posi_indices, nega_indices):
 
 
 def auc_opt_3d(x_tr, y_tr):
-    x_tr = np.asarray(x_tr, dtype=np.float64)
     np.random.seed(17)
     assert 3 == x_tr.shape[1]
+    x_tr = np.asarray(x_tr, dtype=np.float64)
     posi_indices = [ind for ind, _ in enumerate(y_tr) if _ > 0.]
     nega_indices = [ind for ind, _ in enumerate(y_tr) if _ < 0.]
     set_k = []
     for i in posi_indices[:50]:
         for j in nega_indices[:50]:
             point = x_tr[i] - x_tr[j]
-            if np.linalg.norm(point) <= 1e-15:
+            if norm(point) <= 1e-15:
                 # ignore the co-linear pair
                 continue
-            point = point / np.linalg.norm(point)
+            point = point / norm(point)
             set_k.append(point)
     w, ax = open_hemisphere_3d(points=set_k)
     fig = plt.figure()
