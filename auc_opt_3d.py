@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
-from numba import jit
 import os
 import sys
 import time
 import functools
 import numpy as np
+from numba import jit
 from numpy.linalg import norm
 import matplotlib.pyplot as plt
 from sklearn.svm import LinearSVC
@@ -20,6 +20,7 @@ from sklearn.utils.extmath import softmax
 import multiprocessing
 import pickle as pkl
 
+np.random.seed(17)
 precision_eps = 1e-15
 
 
@@ -163,7 +164,6 @@ def test_logistic_regression():
 
 
 def auc_opt_3d(x_tr, y_tr, num_samples=100):
-    np.random.seed(17)
     assert 3 == x_tr.shape[1]
     x_tr = np.asarray(x_tr, dtype=np.float64)
     posi_indices = [ind for ind, _ in enumerate(y_tr) if _ > 0.]
