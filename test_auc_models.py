@@ -399,8 +399,7 @@ def run_algo_opt_auc_3d(para):
     method = 'opt_auc_3d'
     start_tr_time = time.time()
     x_tr, y_tr, x_te1, y_te1, x_te2, y_te2, x_te3, y_te3 = get_standard_data(data, trial_id)
-    w, auc, train_time = opt_auc_3d_algo(
-        np.asarray(x_tr, dtype=np.float64), np.asarray(y_tr, dtype=np.float64))
+    w, auc = opt_auc_3d_algo(np.asarray(x_tr, dtype=np.float64), np.asarray(y_tr, dtype=np.float64))
     tr_scores = np.dot(x_tr, w)
     te1_scores = np.dot(x_te1, w)
     te2_scores = np.dot(x_te2, w)
