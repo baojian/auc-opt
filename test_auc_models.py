@@ -983,4 +983,8 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    dtype = "tsne-3d"
+    num_cpus = 19
+    # for dataset in ["arrhythmia_06", "australian", "banana", "breast_cancer", "car_eval_34", "cardio_3"]:
+    for dataset in ["car_eval_4", "coil_2000", "ecoli_imu", "fourclass", "german", "ionophere", "pima"]:
+        parallel_by_method_dataset(dtype=dtype, dataset=dataset, method="opt_auc_3d", num_cpus=num_cpus)
