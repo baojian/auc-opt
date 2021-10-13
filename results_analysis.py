@@ -625,10 +625,10 @@ def t_test(tag):
         'satimage_4', 'scene', 'seismic', 'sick_euthyroid', 'solar_flare_m0', 'spambase', 'spectf',
         'spectrometer', 'splice', 'svmguide3', 'thyroid_sick', 'us_crime', 'vehicle_bus', 'vehicle_saab',
         'vehicle_van', 'vowel_hid', 'w7a', 'wine_quality', 'yeast_cyt', 'yeast_me1', 'yeast_me2', 'yeast_ml8']
-    method_list = ['c_svm', 'b_c_svm', 'lr', 'b_lr', 'svm_perf_lin', 'spauc', 'spam', 'opt_auc']
+    method_list = ['c_svm', 'b_c_svm', 'lr', 'b_lr', 'svm_perf_lin', 'spauc', 'spam', 'opt_auc_3d']
     tr_auc_matrix = []
-    num_trials = 210
-    eff_range = range(5, num_trials - 5)
+    num_trials = 50
+    eff_range = range(2, num_trials - 2)
     for ind, dataset in enumerate(list_datasets):
         results = pkl.load(open(get_root_path() + '%s/results_all_%s.pkl' % (dataset, dataset), 'rb'))
         list_vals = []
