@@ -168,7 +168,6 @@ def auc_opt_3d(x_tr, y_tr, num_samples=100):
     x_tr = np.asarray(x_tr, dtype=np.float64)
     posi_indices = [ind for ind, _ in enumerate(y_tr) if _ > 0.]
     nega_indices = [ind for ind, _ in enumerate(y_tr) if _ < 0.]
-    test_logistic(x_tr, posi_indices, nega_indices, num_samples=num_samples)
     set_k = []
     for i in posi_indices[:num_samples]:
         for j in nega_indices[:num_samples]:
@@ -179,11 +178,7 @@ def auc_opt_3d(x_tr, y_tr, num_samples=100):
             point = point / norm(point)
             set_k.append(point)
     w, opt_auc = open_hemisphere_3d(points=set_k)
-    print(f"w: {w} {np.sum(np.dot(set_k, w) > 0, axis=0)}")
-    ax = plt.axes(projection='3d')
-    ax.scatter3D(x_tr[posi_indices, 0], x_tr[posi_indices, 1], x_tr[posi_indices, 2], 'r')
-    ax.scatter3D(x_tr[nega_indices, 0], x_tr[nega_indices, 1], x_tr[nega_indices, 2], 'b')
-    plt.show()
+    return w, opt_auc
 
 
 def main():

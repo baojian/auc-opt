@@ -11,6 +11,12 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.preprocessing import Normalizer
 from sklearn.preprocessing import MinMaxScaler
 from functools import reduce
+import mkl
+
+mkl.set_num_threads(1)
+os.environ['OPENBLAS_NUM_THREADS'] = '1'
+os.environ['NUMEXPR_NUM_THREADS'] = '1'
+os.environ['MKL_NUM_THREADS'] = '1'
 
 """
 ecoli:          https://archive.ics.uci.edu/ml/datasets/Ecoli
@@ -160,7 +166,7 @@ def t_sne_3d(para):
     start_time = time.time()
     t_sne = TSNE(n_components=3, perplexity=perplexity, early_exaggeration=12.0, learning_rate=200.0,
                  n_iter=5000, n_iter_without_progress=300, min_grad_norm=1e-7, metric="euclidean",
-                 init="random", verbose=1, random_state=rand_state, method='barnes_hut', angle=0.5,
+                 init="random", verbose=0, random_state=rand_state, method='barnes_hut', angle=0.5,
                  n_jobs=None)
     t_sne.fit_transform(X=data_x, y=data_y)
     print(model_name, perplexity, 'run_time', time.time() - start_time)
@@ -174,7 +180,7 @@ def t_sne_3d(para):
             'random_state': rand_state, 'method': 'barnes_hut', 'angle': 0.5, 'n_jobs': 'None'}}}
 
 
-def run_single_tsne(dataset):
+def run_single_tsne_2d(dataset):
     x_tr, y_tr = get_real_data(dataset=dataset)
     rand_state = 17
     para_space = []
@@ -409,10 +415,20 @@ def main():
     elif sys.argv[1] == 'print_data':
         print_datasets_table()
     elif sys.argv[1] == 'tsne-2d':
-        run_single_tsne(dataset=sys.argv[2])
+        run_single_tsne_2d(dataset=sys.argv[2])
         draw_t_sne(data_name=sys.argv[2])
     elif sys.argv[1] == 'tsne-3d':
-        run_single_tsne(dataset=sys.argv[2])
+        for dataset in ['abalone_19', 'abalone_7', 'arrhythmia_06', 'australian', 'banana', 'breast_cancer',
+                        'cardio_3', 'car_eval_34', 'car_eval_4', 'coil_2000', 'ecoli_imu', 'fourclass', 'german',
+                        'ionosphere', 'isolet', 'letter_a', 'letter_z', 'libras_move', 'mammography',
+                        'mushrooms', 'oil', 'optical_digits_0', 'optical_digits_8', 'ozone_level', 'page_blocks',
+                        'pen_digits_0', 'pen_digits_5', 'pima', 'satimage_4', 'scene', 'seismic',
+                        'sick_euthyroid', 'solar_flare_m0', 'spambase', 'spectf', 'spectrometer', 'splice',
+                        'svmguide3', 'thyroid_sick', 'us_crime', 'vehicle_bus', 'vehicle_saab',
+                        'vehicle_van', 'vowel_hid', 'w7a', 'wine_quality', 'yeast_cyt',
+                        'yeast_me1', 'yeast_me2', 'yeast_ml8']:
+            print(dataset)
+            run_single_tsne_3d(dataset=dataset)
     elif sys.argv[1] == 'pre_proc':
         dataset = sys.argv[2]
         f_w = open(root_path + '%s/input_%s.txt' % (dataset, dataset), 'w')
@@ -469,4 +485,4 @@ def draw_t_sne_10():
 
 
 if __name__ == '__main__':
-    run_single_tsne_3d(dataset="mushrooms")
+    main()
