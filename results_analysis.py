@@ -623,10 +623,14 @@ def t_test(tag):
         'satimage_4', 'scene', 'seismic', 'sick_euthyroid', 'solar_flare_m0', 'spambase', 'spectf',
         'spectrometer', 'splice', 'svmguide3', 'thyroid_sick', 'us_crime', 'vehicle_bus', 'vehicle_saab',
         'vehicle_van', 'vowel_hid', 'w7a', 'wine_quality', 'yeast_cyt', 'yeast_me1', 'yeast_me2', 'yeast_ml8']
+<<<<<<< HEAD
     list_datasets = ['abalone_19', 'abalone_7', 'arrhythmia_06', 'australian', 'banana', 'breast_cancer', 'cardio_3',
                      'car_eval_34', 'car_eval_4', 'coil_2000', 'ecoli_imu', 'fourclass']
     method_list = ['c_svm', 'b_c_svm', 'lr', 'b_lr', 'svm_perf_lin', 'spauc', 'spam', 'opt_auc_3d']
 
+=======
+    method_list = ['c_svm', 'b_c_svm', 'lr', 'b_lr', 'svm_perf_lin', 'spauc', 'spam', 'opt_auc_3d']
+>>>>>>> f8e993e77d0e9ff2e0762d80761020c6bca5f4cc
     tr_auc_matrix = []
     num_trials = 50
     eff_range = range(2, num_trials - 2)
