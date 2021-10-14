@@ -32,7 +32,7 @@ spectf:             https://archive.ics.uci.edu/ml/datasets/Yeast
 ionosphere:         https://archive.ics.uci.edu/ml/datasets/ionosphere
 """
 
-root_path = "/home/baojian/data/aistats22-auc-opt/datasets/"
+root_path = "/nfs/nfs-davinci/baojian/data/aistats22-auc-opt/datasets/"
 
 
 def get_real_data(dataset):
@@ -426,15 +426,20 @@ def main():
         run_single_tsne_2d(dataset=sys.argv[2])
         draw_t_sne(data_name=sys.argv[2])
     elif sys.argv[1] == 'tsne-3d':
-        for dataset in ['abalone_19', 'abalone_7', 'arrhythmia_06', 'australian', 'banana', 'breast_cancer',
-                        'cardio_3', 'car_eval_34', 'car_eval_4', 'coil_2000', 'ecoli_imu', 'fourclass', 'german',
-                        'ionosphere', 'isolet', 'letter_a', 'letter_z', 'libras_move', 'mammography',
-                        'mushrooms', 'oil', 'optical_digits_0', 'optical_digits_8', 'ozone_level', 'page_blocks',
-                        'pen_digits_0', 'pen_digits_5', 'pima', 'satimage_4', 'scene', 'seismic',
+        list_datasets = ['abalone_19', 'abalone_7', 'arrhythmia_06', 'australian', 'banana', 'breast_cancer',
+                         'cardio_3', 'car_eval_34', 'car_eval_4', 'coil_2000', 'ecoli_imu', 'fourclass', 'german',
+                         'ionosphere', 'isolet', 'letter_a', 'letter_z', 'libras_move', 'mammography',
+                         'mushrooms', 'oil', 'optical_digits_0', 'optical_digits_8', 'ozone_level', 'page_blocks',
+                         'pen_digits_0', 'pen_digits_5', 'pima', 'satimage_4', 'scene', 'seismic',
+                         'sick_euthyroid', 'solar_flare_m0', 'spambase', 'spectf', 'spectrometer', 'splice',
+                         'svmguide3', 'thyroid_sick', 'us_crime', 'vehicle_bus', 'vehicle_saab',
+                         'vehicle_van', 'vowel_hid', 'w7a', 'wine_quality', 'yeast_cyt',
+                         'yeast_me1', 'yeast_me2', 'yeast_ml8']
+        for dataset in ['satimage_4', 'scene', 'seismic',
                         'sick_euthyroid', 'solar_flare_m0', 'spambase', 'spectf', 'spectrometer', 'splice',
-                        'svmguide3', 'thyroid_sick', 'us_crime', 'vehicle_bus', 'vehicle_saab',
-                        'vehicle_van', 'vowel_hid', 'w7a', 'wine_quality', 'yeast_cyt',
-                        'yeast_me1', 'yeast_me2', 'yeast_ml8']:
+                        'svmguide3', 'thyroid_sick', 'us_crime']:
+            pass
+        for dataset in ['spambase', 'spectf', 'spectrometer', 'splice', 'svmguide3', 'thyroid_sick', 'us_crime']:
             print(dataset)
             run_single_tsne_3d(dataset=dataset)
     elif sys.argv[1] == 'pre_proc':

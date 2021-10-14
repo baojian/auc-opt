@@ -982,6 +982,14 @@ def main():
 
 
 def test():
+    list_datasets = [
+        'abalone_19', 'abalone_7', 'arrhythmia_06', 'australian', 'banana', 'breast_cancer', 'cardio_3',
+        'car_eval_34', 'car_eval_4', 'coil_2000', 'ecoli_imu', 'fourclass', 'german', 'ionosphere',
+        'isolet', 'letter_a', 'letter_z', 'libras_move', 'mammography', 'mushrooms', 'oil',
+        'optical_digits_0', 'optical_digits_8', 'ozone_level', 'page_blocks', 'pen_digits_0', 'pen_digits_5', 'pima',
+        'satimage_4', 'scene', 'seismic', 'sick_euthyroid', 'solar_flare_m0', 'spambase', 'spectf',
+        'spectrometer', 'splice', 'svmguide3', 'thyroid_sick', 'us_crime', 'vehicle_bus', 'vehicle_saab',
+        'vehicle_van', 'vowel_hid', 'w7a', 'wine_quality', 'yeast_cyt', 'yeast_me1', 'yeast_me2', 'yeast_ml8']
     dtype = "tsne-3d"
     num_cpus = 25
     # for dataset in ["arrhythmia_06", "australian", "banana", "breast_cancer", "car_eval_34", "cardio_3"]:
@@ -992,7 +1000,7 @@ def test():
 
 if __name__ == '__main__':
     dtype = "tsne-3d"
-    num_cpus = 30
+    num_cpus = 38
     for dataset in ['ionosphere', 'isolet', 'letter_a', 'letter_z', 'libras_move', 'mammography', 'mushrooms', 'oil',
-                    'optical_digits_0', 'optical_digits_8', 'ozone_level', 'page_blocks']:
-            parallel_by_method_dataset(dtype=dtype, dataset=dataset, method="opt_auc_3d", num_cpus=num_cpus)
+                    'optical_digits_0', 'optical_digits_8', 'ozone_level']:
+        parallel_by_method_dataset(dtype=dtype, dataset=dataset, method="opt_auc_3d", num_cpus=num_cpus)
