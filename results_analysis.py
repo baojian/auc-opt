@@ -26,32 +26,26 @@ import pickle as pkl
 from scipy.stats import ttest_ind
 from sklearn.metrics import adjusted_rand_score
 
-
-def get_root_path():
-    if os.uname()[1] == 'baojian-ThinkPad-T540p':
-        root_path = '/data/auc-logistic/'
-    elif os.uname()[1] == 'pascal':
-        root_path = '/mnt/store2/baojian/data/auc-logistic/'
-    elif os.uname()[1].endswith('.rit.albany.edu'):
-        root_path = '/network/rit/lab/ceashpc/bz383376/data/auc-logistic/'
-    else:
-        root_path = '/network/rit/lab/ceashpc/bz383376/data/auc-logistic/'
-    return root_path
+root_path = "/home/baojian/data/aistats22-auc-opt/datasets/"
 
 
 def get_summarized_data(dataset_name):
     results = dict()
     dataset_list = [dataset_name]
-    tag_list, num_trials = ['real', 'tsne'], 210
+    tag_list, num_trials = ['tsne-3d'], 50
     for dataset in dataset_list:
         results[dataset] = dict()
         for tag in tag_list:
             if tag == 'real':
                 method_list = ['c_svm', 'b_c_svm', 'lr', 'b_lr', 'rbf_svm', 'b_rbf_svm', 'rf', 'b_rf',
                                'spauc', 'spam', 'gb', 'rank_boost', 'adaboost', 'svm_perf_lin', 'svm_perf_rbf']
-            else:
+            elif tag == 'tsne-2d':
                 method_list = ['c_svm', 'b_c_svm', 'lr', 'b_lr', 'rbf_svm', 'b_rbf_svm', 'rf', 'b_rf', 'opt_auc',
                                'spauc', 'spam', 'gb', 'rank_boost', 'adaboost', 'svm_perf_lin', 'svm_perf_rbf']
+            elif tag == 'tsne-3d':
+                method_list = ['c_svm', 'b_c_svm', 'lr', 'b_lr', 'opt_auc_3d', 'spauc', 'spam', 'svm_perf_lin']
+            else:
+                return 0
             results[dataset][tag] = dict()
             for trial_i in range(num_trials):
                 results[dataset][tag][trial_i] = dict()
@@ -63,18 +57,22 @@ def get_summarized_data(dataset_name):
             if tag == 'real':
                 method_list = ['c_svm', 'b_c_svm', 'lr', 'b_lr', 'rbf_svm', 'b_rbf_svm', 'rf', 'b_rf',
                                'spauc', 'spam', 'gb', 'rank_boost', 'adaboost', 'svm_perf_lin', 'svm_perf_rbf']
-            else:
+            elif tag == 'tsne-2d':
                 method_list = ['c_svm', 'b_c_svm', 'lr', 'b_lr', 'rbf_svm', 'b_rbf_svm', 'rf', 'b_rf', 'opt_auc',
                                'spauc', 'spam', 'gb', 'rank_boost', 'adaboost', 'svm_perf_lin', 'svm_perf_rbf']
+            elif tag == 'tsne-3d':
+                method_list = ['c_svm', 'b_c_svm', 'lr', 'b_lr', 'opt_auc_3d', 'spauc', 'spam', 'svm_perf_lin']
+            else:
+                return 0
             for method in method_list:
-                file = get_root_path() + '%s/results_%s_%s_%s.pkl' % (dataset, tag, dataset, method)
+                file = root_path + '%s/results_%s_%s_%s.pkl' % (dataset, tag, dataset, method)
                 if os.path.exists(file):
                     re = pkl.load(open(file, 'rb'))
                     print(dataset, tag, method)
                     for trial_i in re:
                         for label in ['tr', 'te1', 'te2', 'te3']:
                             results[dataset][tag][trial_i][method][label] = re[trial_i][method][label]
-        file = get_root_path() + '%s/results_all_%s.pkl' % (dataset, dataset)
+        file = root_path + '%s/results_all_%s.pkl' % (dataset, dataset)
         pkl.dump(results, open(file, 'wb'))
 
 
@@ -83,7 +81,7 @@ def show_tr_auc_te_auc(dataset=None):
     num_trials = 210
     list_datasets = [dataset]
     for dataset in list_datasets:
-        results = pkl.load(open(get_root_path() + '%s/results_all_%s.pkl' % (dataset, dataset), 'rb'))
+        results = pkl.load(open(root_path + '%s/results_all_%s.pkl' % (dataset, dataset), 'rb'))
         for tag in ['real', 'tsne']:
             if tag == 'real':
                 method_list = ['rank_boost', 'adaboost', 'spam', 'spauc', 'svm_perf_lin', 'svm_perf_rbf',
@@ -122,7 +120,7 @@ def show_tr_auc_te_auc(dataset=None):
             ax[0, 1].legend(loc='lower right', ncol=2)
             ax[1, 0].legend(loc='lower right', ncol=2)
             ax[1, 1].legend(loc='lower right', ncol=2)
-            f_name = get_root_path() + '%s/fig_%s_auc.pdf' % (dataset, tag)
+            f_name = root_path + '%s/fig_%s_auc.pdf' % (dataset, tag)
             plt.subplots_adjust(wspace=0.1, hspace=.15)
             fig.savefig(f_name, dpi=300, bbox_inches='tight', pad_inches=.1, format='pdf')
             plt.close()
@@ -133,7 +131,7 @@ def show_tr_acc_f1_te_acc_f1(dataset=None):
     num_trials = 210
     list_datasets = [dataset]
     for dataset in list_datasets:
-        results = pkl.load(open(get_root_path() + '%s/results_all_%s.pkl' % (dataset, dataset), 'rb'))
+        results = pkl.load(open(root_path + '%s/results_all_%s.pkl' % (dataset, dataset), 'rb'))
         for tag in ['real', 'tsne']:
             if tag == 'real':
                 method_list = ['rank_boost', 'adaboost', 'spam', 'spauc', 'svm_perf_lin', 'svm_perf_rbf',
@@ -176,7 +174,7 @@ def show_tr_acc_f1_te_acc_f1(dataset=None):
                 ax[0, 1].legend(loc='lower right', ncol=2)
                 ax[1, 0].legend(loc='lower right', ncol=2)
                 ax[1, 1].legend(loc='lower right', ncol=2)
-                f_name = get_root_path() + '%s/fig_%s_%s.pdf' % (dataset, tag, metric)
+                f_name = root_path + '%s/fig_%s_%s.pdf' % (dataset, tag, metric)
                 plt.subplots_adjust(wspace=0.1, hspace=.15)
                 fig.savefig(f_name, dpi=300, bbox_inches='tight', pad_inches=.1, format='pdf')
                 plt.close()
@@ -204,7 +202,7 @@ def tsne_results(tag):
     num_trials = 210
     eff_range = range(5, num_trials - 5)
     for ind, dataset in enumerate(list_datasets):
-        results = pkl.load(open(get_root_path() + '%s/results_all_%s.pkl' % (dataset, dataset), 'rb'))
+        results = pkl.load(open(root_path + '%s/results_all_%s.pkl' % (dataset, dataset), 'rb'))
         list_vals = []
         for ind_method, method in enumerate(method_list):
             list_vals.append(np.mean([results[dataset]['tsne'][_][method]['tr']['auc'] for _ in eff_range]))
@@ -382,7 +380,7 @@ def std_auc(tag):
     eff_range = range(5, num_trials - 5)
     for ind, _ in enumerate(list_datasets):
         dataset = _
-        results = pkl.load(open(get_root_path() + '%s/results_all_%s.pkl' % (dataset, dataset), 'rb'))
+        results = pkl.load(open(root_path + '%s/results_all_%s.pkl' % (dataset, dataset), 'rb'))
         list_vals = []
         for ind_method, method in enumerate(method_list):
             list_vals.append(np.var([results[dataset]['tsne'][_][method]['tr']['auc'] for _ in eff_range]))
@@ -524,7 +522,7 @@ def run_time_tsne(tag):
     num_trials = 210
     eff_range = range(5, num_trials - 5)
     for ind, dataset in enumerate(list_datasets):
-        results = pkl.load(open(get_root_path() + '%s/results_all_%s.pkl' % (dataset, dataset), 'rb'))
+        results = pkl.load(open(root_path + '%s/results_all_%s.pkl' % (dataset, dataset), 'rb'))
         list_vals = []
         for ind_method, method in enumerate(method_list):
             list_vals.append(np.mean([results[dataset][tag][_][method]['tr']['train_time'] for _ in eff_range]))
@@ -576,7 +574,7 @@ def run_time_real():
     num_trials = 210
     eff_range = range(5, num_trials - 5)
     for ind, dataset in enumerate(list_datasets):
-        results = pkl.load(open(get_root_path() + '%s/results_all_%s.pkl' % (dataset, dataset), 'rb'))
+        results = pkl.load(open(root_path + '%s/results_all_%s.pkl' % (dataset, dataset), 'rb'))
         list_vals = []
         for ind_method, method in enumerate(method_list):
             print(dataset, method)
@@ -625,15 +623,18 @@ def t_test(tag):
         'satimage_4', 'scene', 'seismic', 'sick_euthyroid', 'solar_flare_m0', 'spambase', 'spectf',
         'spectrometer', 'splice', 'svmguide3', 'thyroid_sick', 'us_crime', 'vehicle_bus', 'vehicle_saab',
         'vehicle_van', 'vowel_hid', 'w7a', 'wine_quality', 'yeast_cyt', 'yeast_me1', 'yeast_me2', 'yeast_ml8']
-    method_list = ['c_svm', 'b_c_svm', 'lr', 'b_lr', 'svm_perf_lin', 'spauc', 'spam', 'opt_auc']
+    list_datasets = ['abalone_19', 'abalone_7', 'arrhythmia_06', 'australian', 'banana', 'breast_cancer', 'cardio_3',
+                     'car_eval_34', 'car_eval_4', 'coil_2000', 'ecoli_imu', 'fourclass']
+    method_list = ['c_svm', 'b_c_svm', 'lr', 'b_lr', 'svm_perf_lin', 'spauc', 'spam', 'opt_auc_3d']
+
     tr_auc_matrix = []
-    num_trials = 210
-    eff_range = range(5, num_trials - 5)
+    num_trials = 50
+    eff_range = range(2, num_trials - 2)
     for ind, dataset in enumerate(list_datasets):
-        results = pkl.load(open(get_root_path() + '%s/results_all_%s.pkl' % (dataset, dataset), 'rb'))
+        results = pkl.load(open(root_path + '%s/results_all_%s.pkl' % (dataset, dataset), 'rb'))
         list_vals = []
         for ind_method, method in enumerate(method_list):
-            list_vals.append([results[dataset]['tsne'][_][method][tag]['auc'] for _ in eff_range])
+            list_vals.append([results[dataset]['tsne-3d'][_][method][tag]['auc'] for _ in eff_range])
         tr_auc_matrix.append(list_vals)
     tr_auc_matrix = np.asarray(tr_auc_matrix)
     t_test_matrix = np.zeros((8, 8))
@@ -675,7 +676,7 @@ def find_the_worst_case():
     arr_fill_style = ['none'] * 50
     arr_color_style = ['white'] * 50
     for ind, dataset in enumerate(list_datasets):
-        results = pkl.load(open(get_root_path() + '%s/results_all_%s.pkl' % (dataset, dataset), 'rb'))
+        results = pkl.load(open(root_path + '%s/results_all_%s.pkl' % (dataset, dataset), 'rb'))
         opt_auc, best_approx, best_gap, index_i = 0.0, 0.0, 0.0, 0
         t1, t2 = [], []
         for i in range(210):
@@ -777,7 +778,7 @@ def t_test_real(tag):
     num_trials = 210
     eff_range = range(5, num_trials - 5)
     for ind, dataset in enumerate(list_datasets):
-        results = pkl.load(open(get_root_path() + '%s/results_all_%s.pkl' % (dataset, dataset), 'rb'))
+        results = pkl.load(open(root_path + '%s/results_all_%s.pkl' % (dataset, dataset), 'rb'))
         list_vals = []
         for ind_method, method in enumerate(method_list):
             if len(results[dataset]['real'][5][method]) != 0:
@@ -819,6 +820,10 @@ def t_test_real(tag):
 
 def main():
     if sys.argv[1] == 'sum_data':
+        for dataset in ["australian", "banana", "breast_cancer", "car_eval_34", "car_eval_4", "cardio_3", "coil_2000",
+                        "ecoli_imu", "fourclass"]:
+            get_summarized_data(dataset_name=dataset)
+        exit()
         get_summarized_data(dataset_name=sys.argv[2])
         show_tr_auc_te_auc(dataset=sys.argv[2])
         show_tr_acc_f1_te_acc_f1(dataset=sys.argv[2])
@@ -831,7 +836,7 @@ def main():
         run_time_tsne(tag='tr')
     elif sys.argv[1] == 'run_time_real':
         run_time_real()
-    elif sys.argv[1] == 't_test':
+    elif sys.argv[1] == 't_test-3d':
         t_test_mat1 = t_test('tr')
         t_test_mat2 = t_test('te1')
         for item1, item2 in zip(t_test_mat1, t_test_mat2):
@@ -840,7 +845,6 @@ def main():
             print(' & '.join([str(int(_)) for _ in list_]))
     elif sys.argv[1] == 't_test_real':
         t_test_mat1 = t_test_real('tr')
-        exit()
         t_test_mat2 = t_test_real('te1')
         for item1, item2 in zip(t_test_mat1, t_test_mat2):
             list_ = list(item1)

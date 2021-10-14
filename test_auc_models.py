@@ -992,7 +992,7 @@ def test():
 
 if __name__ == '__main__':
     dtype = "tsne-3d"
-    num_cpus = 38
+    num_cpus = 20
     # for dataset in []:
     # for dataset in ["car_eval_4", "coil_2000", "ecoli_imu", "fourclass", "german", "ionophere", "pima"]:
     for dataset in ["cardio_3", "coil_2000", "ecoli_imu", "fourclass", "german", "ionophere", "pima"]:
