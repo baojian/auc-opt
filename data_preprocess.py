@@ -435,11 +435,7 @@ def main():
                          'svmguide3', 'thyroid_sick', 'us_crime', 'vehicle_bus', 'vehicle_saab',
                          'vehicle_van', 'vowel_hid', 'w7a', 'wine_quality', 'yeast_cyt',
                          'yeast_me1', 'yeast_me2', 'yeast_ml8']
-        for dataset in ['satimage_4', 'scene', 'seismic',
-                        'sick_euthyroid', 'solar_flare_m0', 'spambase', 'spectf', 'spectrometer', 'splice',
-                        'svmguide3', 'thyroid_sick', 'us_crime']:
-            pass
-        for dataset in ['spambase', 'spectf', 'spectrometer', 'splice', 'svmguide3', 'thyroid_sick', 'us_crime']:
+        for dataset in ['w7a']:
             print(dataset)
             run_single_tsne_3d(dataset=dataset)
     elif sys.argv[1] == 'pre_proc':

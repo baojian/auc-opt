@@ -103,9 +103,9 @@ def toy_example():
     ax1 = ax[0]
     ax2 = ax[1]
     ax1.scatter(x_tr[np.argwhere(y_tr < 0), 0], x_tr[np.argwhere(y_tr < 0), 1],
-                c='b', marker='_', s=10, alpha=0.8)
+                c='b', marker='_', s=10, alpha=0.8, label="negative")
     ax1.scatter(x_tr[np.argwhere(y_tr > 0), 0], x_tr[np.argwhere(y_tr > 0), 1],
-                c='r', marker='+', s=15, alpha=0.8)
+                c='r', marker='+', s=15, alpha=0.8, label="positive")
     w_opt, auc, train_time = c_opt_auc(np.asarray(x_tr, dtype=np.float64),
                                        np.asarray(y_tr, dtype=np.float64), 2e-16)
     print('opt-auc', auc)
@@ -168,7 +168,7 @@ def toy_example():
             yy.append(-(w_lr[0] * _) / w_lr[1])
     ax1.plot(xx, yy, linestyle='dotted', zorder=-1, label='LR', color='tab:blue')
     print('svm', best_auc)
-    ax1.legend(loc='upper left', frameon=False, fontsize=11, handlelength=1.2)
+    ax1.legend(loc='lower right', frameon=False, fontsize=11, handlelength=1.2)
     ax2.legend(loc="lower right", bbox_to_anchor=(.99, .12), frameon=False, fontsize=11, handlelength=1.2)
     ax1.tick_params(axis='y', direction='in')
     ax1.tick_params(axis='x', direction='in')

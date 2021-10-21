@@ -614,22 +614,14 @@ def run_time_real():
                float(np.std(run_time_matrix[:, ind_method]))))
 
 
-def t_test(tag):
-    list_datasets = [
-        'abalone_19', 'abalone_7', 'arrhythmia_06', 'australian', 'banana', 'breast_cancer', 'cardio_3',
-        'car_eval_34', 'car_eval_4', 'coil_2000', 'ecoli_imu', 'fourclass', 'german', 'ionosphere',
-        'isolet', 'letter_a', 'letter_z', 'libras_move', 'mammography', 'mushrooms', 'oil',
-        'optical_digits_0', 'optical_digits_8', 'ozone_level', 'page_blocks', 'pen_digits_0', 'pen_digits_5', 'pima',
-        'satimage_4', 'scene', 'seismic', 'sick_euthyroid', 'solar_flare_m0', 'spambase', 'spectf',
-        'spectrometer', 'splice', 'svmguide3', 'thyroid_sick', 'us_crime', 'vehicle_bus', 'vehicle_saab',
-        'vehicle_van', 'vowel_hid', 'w7a', 'wine_quality', 'yeast_cyt', 'yeast_me1', 'yeast_me2', 'yeast_ml8']
-    list_datasets = ['abalone_19', 'abalone_7', 'arrhythmia_06', 'australian', 'banana', 'breast_cancer', 'cardio_3',
-                     'car_eval_34', 'car_eval_4', 'coil_2000', 'ecoli_imu', 'fourclass']
+def t_test(tag, list_datasets):
+    print(len(list_datasets))
     method_list = ['c_svm', 'b_c_svm', 'lr', 'b_lr', 'svm_perf_lin', 'spauc', 'spam', 'opt_auc_3d']
     tr_auc_matrix = []
     num_trials = 50
-    eff_range = range(2, num_trials - 2)
+    eff_range = range(0, num_trials)
     for ind, dataset in enumerate(list_datasets):
+        print(dataset)
         results = pkl.load(open(root_path + '%s/results_all_%s.pkl' % (dataset, dataset), 'rb'))
         list_vals = []
         for ind_method, method in enumerate(method_list):
@@ -818,11 +810,31 @@ def t_test_real(tag):
 
 
 def main():
+    list_datasets = [
+        'abalone_19', 'abalone_7', 'arrhythmia_06', 'australian', 'banana', 'breast_cancer', 'cardio_3',
+        'car_eval_34', 'car_eval_4', 'coil_2000', 'ecoli_imu', 'fourclass', 'german', 'ionosphere',
+        'isolet', 'letter_a', 'letter_z', 'libras_move', 'mammography', 'mushrooms', 'oil',
+        'optical_digits_0', 'optical_digits_8', 'ozone_level', 'page_blocks', 'pen_digits_0', 'pen_digits_5', 'pima',
+        'satimage_4', 'scene', 'seismic', 'sick_euthyroid', 'solar_flare_m0', 'spambase', 'spectf',
+        'spectrometer', 'splice', 'svmguide3', 'thyroid_sick', 'us_crime', 'vehicle_bus', 'vehicle_saab',
+        'vehicle_van', 'vowel_hid', 'w7a', 'wine_quality', 'yeast_cyt', 'yeast_me1', 'yeast_me2', 'yeast_ml8']
+    print(len(list_datasets))
+    for dataset in list_datasets:
+        get_summarized_data(dataset_name=dataset)
+    method_title = ['SVM', 'B-SVM', 'LR', 'B-LR', 'SVM-Perf', 'SPAUC', 'SPAM', 'AUC-opt']
+    t_test_mat1 = t_test('tr', list_datasets=list_datasets)
+    t_test_mat2 = t_test('te1', list_datasets=list_datasets)
+    for ind, (item1, item2) in enumerate(zip(t_test_mat1, t_test_mat2)):
+        list_ = list(item1)
+        list_.extend(item2)
+        print(" & ", end=' ')
+        print(method_title[ind], end=' ')
+        print('& ', end=' ')
+        print(' & '.join([str(int(_)) if ind2 != ind else '-' for ind2, _ in enumerate(list_)]), end=" ")
+        print('\\\\')
+    exit()
     if sys.argv[1] == 'sum_data':
-        for dataset in ["australian", "banana", "breast_cancer", "car_eval_34", "car_eval_4", "cardio_3", "coil_2000",
-                        "ecoli_imu", "fourclass"]:
-            get_summarized_data(dataset_name=dataset)
-        exit()
+
         get_summarized_data(dataset_name=sys.argv[2])
         show_tr_auc_te_auc(dataset=sys.argv[2])
         show_tr_acc_f1_te_acc_f1(dataset=sys.argv[2])

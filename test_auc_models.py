@@ -1001,6 +1001,6 @@ def test():
 if __name__ == '__main__':
     dtype = "tsne-3d"
     num_cpus = 38
-    for dataset in ['ionosphere', 'isolet', 'letter_a', 'letter_z', 'libras_move', 'mammography', 'mushrooms', 'oil',
-                    'optical_digits_0', 'optical_digits_8', 'ozone_level']:
-        parallel_by_method_dataset(dtype=dtype, dataset=dataset, method="opt_auc_3d", num_cpus=num_cpus)
+    for dataset in ['w7a']:
+        for method in ["c_svm", "b_c_svm", "lr", "b_lr", "svm_perf_lin", "spauc", "spam", "opt_auc_3d"]:
+            parallel_by_method_dataset(dtype=dtype, dataset=dataset, method=method, num_cpus=num_cpus)
