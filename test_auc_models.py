@@ -30,7 +30,7 @@ from sklearn.svm import SVC
 
 from auc_opt_3d import opt_auc_3d_algo
 
-root_path = "---"
+root_path = "/data/auc-opt-datasets/"
 try:
     sys.path.append(os.getcwd())
     import libspam_l2
@@ -183,7 +183,7 @@ def cmd_svm_perf(sub_x_tr, sub_y_tr, sub_x_te, sub_y_te, para_xi, kernel):
     file_pred = tempfile.NamedTemporaryFile()
     if kernel == 'linear':
         # We set the number of terminate QP sub-problem is 10000.
-        learn_cmd = "./svm_perf/svm_perf_learn -v 3 -y 3 -w 9 -t 0 -c %.10f --b 1 -# 10000 %s %s"
+        learn_cmd = "./svm_perf/svm_perf_learn -v 3 -y 3 -w 9 -t 0 -c %.10f --b 1 -# 1000 %s %s"
         os.system(learn_cmd % (para_xi, f_tr.name, file_model.name))
         file_model.seek(0)
     else:
@@ -288,7 +288,7 @@ def pred_tr_te_std(method, trial_id, y_tr, y_te1, y_te2, y_te3, tr_scores, te1_s
     return results
 
 
-def get_standard_data(data, trial_id, std_type='StandardScaler'):
+def get_standard_data(data, trial_id, std_type, data_type):
     tr_index = data['trial_%d_tr_indices' % trial_id]
     te_index = data['trial_%d_te_indices' % trial_id]
     x_tr, y_tr = data['x_tr'][tr_index], data['y_tr'][tr_index]
@@ -345,16 +345,20 @@ def get_standard_data(data, trial_id, std_type='StandardScaler'):
     trans_x_te1 = std_normalize.transform(np.array(x_te1))
     trans_x_te2 = std_normalize.transform(np.array(x_te2))
     trans_x_te3 = std_normalize.transform(np.array(x_te3))
-    num_posi = 0
-    num_nega = 0
-    index = len(y_tr)
-    for i in range(len(y_tr)):
-        if num_posi * num_nega > 2000:
-            index = i
-            break
-        num_posi += (1 if y_tr[i] == 1. else 0)
-        num_nega += (1 if y_tr[i] == -1. else 0)
-    return trans_x_tr[:index], y_tr[:index], trans_x_te1, y_te1, trans_x_te2, y_te2, trans_x_te3, y_te3
+    if data_type == '3d':
+        # too many examples, need to cut down to 2000
+        num_posi = 0
+        num_nega = 0
+        index = len(y_tr)
+        for i in range(len(y_tr)):
+            if num_posi * num_nega > 2000:
+                index = i
+                break
+            num_posi += (1 if y_tr[i] == 1. else 0)
+            num_nega += (1 if y_tr[i] == -1. else 0)
+        trans_x_tr = trans_x_tr[:index]
+        y_tr = y_tr[:index]
+    return trans_x_tr, y_tr, trans_x_te1, y_te1, trans_x_te2, y_te2, trans_x_te3, y_te3
 
 
 def get_standard_data_sub(data, trial_id, sub_tr_ind, sub_te_ind, std_type='StandardScaler'):
@@ -378,10 +382,10 @@ def get_standard_data_sub(data, trial_id, sub_tr_ind, sub_te_ind, std_type='Stan
 
 def run_algo_opt_auc(para):
     start_time = time.time()
-    data, trial_id = para
-    method = 'opt_auc'
+    data, trial_id, std_type, data_type = para
+    method = 'opt_auc_2d'
     start_tr_time = time.time()
-    x_tr, y_tr, x_te1, y_te1, x_te2, y_te2, x_te3, y_te3 = get_standard_data(data, trial_id)
+    x_tr, y_tr, x_te1, y_te1, x_te2, y_te2, x_te3, y_te3 = get_standard_data(data, trial_id, std_type, data_type)
     w, auc, train_time = c_opt_auc(np.asarray(x_tr, dtype=np.float64), np.asarray(y_tr, dtype=np.float64), 2e-16)
     tr_scores = np.dot(x_tr, w)
     te1_scores = np.dot(x_te1, w)
@@ -443,7 +447,7 @@ def run_algo_rank_boost(para):
 
 
 def run_algo_spam_l2(para):
-    data, trial_id = para
+    data, trial_id, std_type, dtype = para
     __ = np.empty(shape=(1,), dtype=float)
     # candidate parameters
     list_c = np.arange(1., 101., 9)
@@ -459,7 +463,7 @@ def run_algo_spam_l2(para):
     step_len, verbose, record_aucs, stop_eps, k_fold = 1e8, 0, 0, 1e-6, 5
     global_paras = np.asarray([num_passes, step_len, verbose, record_aucs, stop_eps], dtype=float)
     start_time = time.time()
-    x_tr, y_tr, x_te1, y_te1, x_te2, y_te2, x_te3, y_te3 = get_standard_data(data, trial_id)
+    x_tr, y_tr, x_te1, y_te1, x_te2, y_te2, x_te3, y_te3 = get_standard_data(data, trial_id, std_type, dtype)
     index, auc_matrix = 0, dict()
     for (ind_xi, para_xi), (ind_l2, para_l2) in product(enumerate(list_c), enumerate(list_l2)):
         kf = KFold(n_splits=k_fold, shuffle=False)  # Folding is fixed.
@@ -502,7 +506,7 @@ def run_algo_spam_l2(para):
 
 
 def run_algo_spauc_l2(para):
-    data, trial_id = para
+    data, trial_id, std_type, dtype = para
     __ = np.empty(shape=(1,), dtype=float)
     # candidate parameters
     list_mu = list(10. ** np.asarray([-7.0, -6.5, -6.0, -5.5, -5.0, -4.5, -4.0, -3.5, -3.0, -2.5]))
@@ -516,7 +520,7 @@ def run_algo_spauc_l2(para):
     step_len, verbose, record_aucs, stop_eps, k_fold = 1e8, 0, 0, 1e-6, 5
     global_paras = np.asarray([num_passes, step_len, verbose, record_aucs, stop_eps], dtype=float)
     start_time = time.time()
-    x_tr, y_tr, x_te1, y_te1, x_te2, y_te2, x_te3, y_te3 = get_standard_data(data, trial_id)
+    x_tr, y_tr, x_te1, y_te1, x_te2, y_te2, x_te3, y_te3 = get_standard_data(data, trial_id, std_type, dtype)
     index, auc_matrix = 0, dict()
     for (ind_mu, para_mu), (ind_l2, para_l2) in product(enumerate(list_mu), enumerate(list_l2)):
         kf = KFold(n_splits=k_fold, shuffle=False)  # Folding is fixed.
@@ -563,7 +567,7 @@ def run_algo_spauc_l2(para):
 
 
 def run_algo_svm_perf(para):
-    data, trial_id, kernel = para
+    data, trial_id, kernel, std_type, dtype = para
     list_c, k_fold = np.asarray([2. ** _ for _ in np.arange(-20, 11, 2, dtype=float)]), 5
     method = 'svm_perf_lin' if kernel == 'linear' else 'svm_perf_rbf'
     if kernel == 'linear':
@@ -585,7 +589,7 @@ def run_algo_svm_perf(para):
     if len(list_c) == 1:
         start_time = time.time()
         best_c = 20.0
-        x_tr, y_tr, x_te1, y_te1, x_te2, y_te2, x_te3, y_te3 = get_standard_data(data, trial_id)
+        x_tr, y_tr, x_te1, y_te1, x_te2, y_te2, x_te3, y_te3 = get_standard_data(data, trial_id, std_type, dtype)
         start_tr_time = time.time()
         tr_scores, te1_scores, model = cmd_svm_perf(x_tr, y_tr, x_te1, y_te1, best_c, kernel)
         tr_scores, te2_scores, model = cmd_svm_perf(x_tr, y_tr, x_te2, y_te2, best_c, kernel)
@@ -596,7 +600,7 @@ def run_algo_svm_perf(para):
         re[method]['best_c'] = best_c
         return {trial_id: re}
     start_time = time.time()
-    x_tr, y_tr, x_te1, y_te1, x_te2, y_te2, x_te3, y_te3 = get_standard_data(data, trial_id)
+    x_tr, y_tr, x_te1, y_te1, x_te2, y_te2, x_te3, y_te3 = get_standard_data(data, trial_id, std_type, dtype)
     auc_matrix = np.zeros(shape=(len(list_c), k_fold))
     for (ind_xi, para_xi) in enumerate(list_c):
         kf = KFold(n_splits=k_fold, shuffle=False)  # Folding is fixed.
@@ -656,11 +660,11 @@ def run_algo_adaboost(para):
 
 
 def run_algo_c_svm(para):
-    data, trial_id, class_weight = para
+    data, trial_id, class_weight, std_type, dtype = para
     list_c, k_fold = np.logspace(-6, 6, 20), 5
     method = 'c_svm' if class_weight is None else 'b_c_svm'
     start_time = time.time()
-    x_tr, y_tr, x_te1, y_te1, x_te2, y_te2, x_te3, y_te3 = get_standard_data(data, trial_id)
+    x_tr, y_tr, x_te1, y_te1, x_te2, y_te2, x_te3, y_te3 = get_standard_data(data, trial_id, std_type, dtype)
     auc_matrix = np.zeros(shape=(len(list_c), k_fold))
     for (ind_xi, para_xi) in enumerate(list_c):
         kf = KFold(n_splits=k_fold, shuffle=False)  # Folding is fixed.
@@ -703,7 +707,7 @@ def run_algo_rbf_svm(para):
     if data['name'] == 'australian':
         list_c = np.logspace(-5, 5, 12)
     method = 'rbf_svm' if class_weight is None else 'b_rbf_svm'
-    x_tr, y_tr, x_te1, y_te1, x_te2, y_te2, x_te3, y_te3 = get_standard_data(data, trial_id)
+    x_tr, y_tr, x_te1, y_te1, x_te2, y_te2, x_te3, y_te3 = get_standard_data(data, trial_id, std_type, dtype)
     auc_matrix = np.zeros(shape=(len(list_c), k_fold))
     for (ind_xi, para_xi) in enumerate(list_c):
         kf = KFold(n_splits=k_fold, shuffle=False)  # Folding is fixed.
@@ -740,11 +744,11 @@ def run_algo_rbf_svm(para):
 
 
 def run_algo_lr(para):
-    data, trial_id, class_weight = para
+    data, trial_id, class_weight, std_type, dtype = para
     list_c, k_fold = np.logspace(-6, 6, 20), 5
     method = 'lr' if class_weight is None else 'b_lr'
     start_time = time.time()
-    x_tr, y_tr, x_te1, y_te1, x_te2, y_te2, x_te3, y_te3 = get_standard_data(data, trial_id)
+    x_tr, y_tr, x_te1, y_te1, x_te2, y_te2, x_te3, y_te3 = get_standard_data(data, trial_id, std_type, dtype)
     auc_matrix = np.zeros(shape=(len(list_c), k_fold))
     for (ind_xi, para_xi) in enumerate(list_c):
         kf = KFold(n_splits=k_fold, shuffle=False)  # Folding is fixed.
@@ -792,7 +796,7 @@ def run_algo_rf(para):
 
     start_time = time.time()
     method = 'rf' if class_weight is None else 'b_rf'
-    x_tr, y_tr, x_te1, y_te1, x_te2, y_te2, x_te3, y_te3 = get_standard_data(data, trial_id)
+    x_tr, y_tr, x_te1, y_te1, x_te2, y_te2, x_te3, y_te3 = get_standard_data(data, trial_id, std_type, dtype)
     auc_matrix = np.zeros(shape=(len(list_n_est), k_fold))
     for (ind_xi, n_est) in enumerate(list_n_est):
         kf = KFold(n_splits=k_fold, shuffle=False)  # Folding is fixed.
@@ -837,7 +841,7 @@ def run_algo_gb(para):
         list_n_est = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
     start_time = time.time()
     method = 'gb'
-    x_tr, y_tr, x_te1, y_te1, x_te2, y_te2, x_te3, y_te3 = get_standard_data(data, trial_id)
+    x_tr, y_tr, x_te1, y_te1, x_te2, y_te2, x_te3, y_te3 = get_standard_data(data, trial_id, std_type, dtype)
     auc_matrix = np.zeros(shape=(len(list_n_est), k_fold))
     for (ind_xi, n_est) in enumerate(list_n_est):
         kf = KFold(n_splits=k_fold, shuffle=False)  # Folding is fixed.
@@ -875,9 +879,8 @@ def run_algo_gb(para):
     return {trial_id: re}
 
 
-def parallel_by_method_dataset(dtype, dataset, method, num_cpus):
-    num_trials, split_ratio = 50, 0.5
-    data = get_data(dtype=dtype, dataset=dataset, num_trials=num_trials, split_ratio=split_ratio)
+def parallel_by_method_dataset(dtype, dataset, method, num_cpus, num_trials, split_ratio, std_type, perplexity):
+    data = get_data(dtype=dtype, dataset=dataset, num_trials=num_trials, split_ratio=split_ratio, perplexity=perplexity)
     pool = multiprocessing.Pool(processes=num_cpus)
     if method == 'rank_boost':
         para_space = [(data, trial_i, method) for trial_i in range(num_trials)]
@@ -885,50 +888,50 @@ def parallel_by_method_dataset(dtype, dataset, method, num_cpus):
     elif method == 'adaboost':
         para_space = [(data, trial_i) for trial_i in range(num_trials)]
         results_pool = pool.map(run_algo_adaboost, para_space)
-    elif method == 'opt_auc':
-        para_space = [(data, trial_i) for trial_i in range(num_trials)]
+    elif method == 'opt_auc_2d':
+        para_space = [(data, trial_i, std_type, dtype) for trial_i in range(num_trials)]
         results_pool = pool.map(run_algo_opt_auc, para_space)
     elif method == 'opt_auc_3d':
-        para_space = [(data, trial_i) for trial_i in range(num_trials)]
+        para_space = [(data, trial_i, std_type, dtype) for trial_i in range(num_trials)]
         results_pool = pool.map(run_algo_opt_auc_3d, para_space)
     elif method == 'c_svm':
-        para_space = [(data, trial_i, None) for trial_i in range(num_trials)]
+        para_space = [(data, trial_i, None, std_type, dtype) for trial_i in range(num_trials)]
         results_pool = pool.map(run_algo_c_svm, para_space)
     elif method == 'b_c_svm':
-        para_space = [(data, trial_i, 'balanced') for trial_i in range(num_trials)]
+        para_space = [(data, trial_i, 'balanced', std_type, dtype) for trial_i in range(num_trials)]
         results_pool = pool.map(run_algo_c_svm, para_space)
     elif method == 'svm_perf_lin':
-        para_space = [(data, trial_i, 'linear') for trial_i in range(num_trials)]
+        para_space = [(data, trial_i, 'linear', std_type, dtype) for trial_i in range(num_trials)]
         results_pool = pool.map(run_algo_svm_perf, para_space)
     elif method == 'svm_perf_rbf':
-        para_space = [(data, trial_i, 'rbf') for trial_i in range(num_trials)]
+        para_space = [(data, trial_i, 'rbf', std_type, dtype) for trial_i in range(num_trials)]
         results_pool = pool.map(run_algo_svm_perf, para_space)
     elif method == 'rbf_svm':
-        para_space = [(data, trial_i, None) for trial_i in range(num_trials)]
+        para_space = [(data, trial_i, None, std_type, dtype) for trial_i in range(num_trials)]
         results_pool = pool.map(run_algo_rbf_svm, para_space)
     elif method == 'b_rbf_svm':
-        para_space = [(data, trial_i, 'balanced') for trial_i in range(num_trials)]
+        para_space = [(data, trial_i, 'balanced', std_type, dtype) for trial_i in range(num_trials)]
         results_pool = pool.map(run_algo_rbf_svm, para_space)
     elif method == 'lr':
-        para_space = [(data, trial_i, None) for trial_i in range(num_trials)]
+        para_space = [(data, trial_i, None, std_type, dtype) for trial_i in range(num_trials)]
         results_pool = pool.map(run_algo_lr, para_space)
     elif method == 'b_lr':
-        para_space = [(data, trial_i, 'balanced') for trial_i in range(num_trials)]
+        para_space = [(data, trial_i, 'balanced', std_type, dtype) for trial_i in range(num_trials)]
         results_pool = pool.map(run_algo_lr, para_space)
     elif method == 'rf':
-        para_space = [(data, trial_i, None) for trial_i in range(num_trials)]
+        para_space = [(data, trial_i, None, std_type, dtype) for trial_i in range(num_trials)]
         results_pool = pool.map(run_algo_rf, para_space)
     elif method == 'b_rf':
-        para_space = [(data, trial_i, 'balanced') for trial_i in range(num_trials)]
+        para_space = [(data, trial_i, 'balanced', std_type, dtype) for trial_i in range(num_trials)]
         results_pool = pool.map(run_algo_rf, para_space)
     elif method == 'gb':
-        para_space = [(data, trial_i) for trial_i in range(num_trials)]
+        para_space = [(data, trial_i, std_type, dtype) for trial_i in range(num_trials)]
         results_pool = pool.map(run_algo_gb, para_space)
     elif method == 'spam':
-        para_space = [(data, trial_i) for trial_i in range(num_trials)]
+        para_space = [(data, trial_i, std_type, dtype) for trial_i in range(num_trials)]
         results_pool = pool.map(run_algo_spam_l2, para_space)
     elif method == 'spauc':
-        para_space = [(data, trial_i) for trial_i in range(num_trials)]
+        para_space = [(data, trial_i, std_type, dtype) for trial_i in range(num_trials)]
         results_pool = pool.map(run_algo_spauc_l2, para_space)
     else:
         results_pool = None
@@ -939,7 +942,7 @@ def parallel_by_method_dataset(dtype, dataset, method, num_cpus):
     print(np.mean([results_pool[_][_][method]['te2']['auc'] for _ in range(num_trials)]))
     print(np.mean([results_pool[_][_][method]['te3']['auc'] for _ in range(num_trials)]))
     pkl.dump(reduce(lambda a, b: {**a, **b}, results_pool),
-             open(root_path + 'datasets/%s/results_%s_%s_%s.pkl' % (dataset, dtype, dataset, method), 'wb'))
+             open(root_path + 'datasets/%s/results_%s_%s_%s_%d.pkl' % (dataset, dtype, dataset, method, perplexity), 'wb'))
 
 
 def test_icml21():
@@ -981,6 +984,14 @@ def main():
             parallel_by_method_dataset(dtype=dtype, dataset=dataset, method="opt_auc_3d", num_cpus=num_cpus)
 
 
+def test2():
+    dtype = "tsne-3d"
+    num_cpus = 38
+    for dataset in ['w7a']:
+        for method in ["c_svm", "b_c_svm", "lr", "b_lr", "svm_perf_lin", "spauc", "spam", "opt_auc_3d"]:
+            parallel_by_method_dataset(dtype=dtype, dataset=dataset, method=method, num_cpus=num_cpus)
+
+
 def test():
     list_datasets = [
         'abalone_19', 'abalone_7', 'arrhythmia_06', 'australian', 'banana', 'breast_cancer', 'cardio_3',
@@ -990,17 +1001,13 @@ def test():
         'satimage_4', 'scene', 'seismic', 'sick_euthyroid', 'solar_flare_m0', 'spambase', 'spectf',
         'spectrometer', 'splice', 'svmguide3', 'thyroid_sick', 'us_crime', 'vehicle_bus', 'vehicle_saab',
         'vehicle_van', 'vowel_hid', 'w7a', 'wine_quality', 'yeast_cyt', 'yeast_me1', 'yeast_me2', 'yeast_ml8']
-    dtype = "tsne-3d"
-    num_cpus = 25
-    # for dataset in ["arrhythmia_06", "australian", "banana", "breast_cancer", "car_eval_34", "cardio_3"]:
-    # for dataset in ["car_eval_4", "coil_2000", "ecoli_imu", "fourclass", "german", "ionophere", "pima"]:
-    for dataset in ["abalone_19"]:
-        parallel_by_method_dataset(dtype=dtype, dataset=dataset, method="opt_auc_3d", num_cpus=num_cpus)
+    dtype, num_trials, split_ratio, std_type, perplexity, num_cpus = "tsne-2d", 200, 0.5, 'StandardScaler', 30, 78
+    method_list = ["opt_auc_2d", "c_svm", "b_c_svm", "svm_perf_lin", "lr", "b_lr", "spauc", "spam"]
+    for dataset in list_datasets:
+        for method in method_list:
+            parallel_by_method_dataset(dtype=dtype, dataset=dataset, method=method, num_cpus=num_cpus,
+                                       num_trials=num_trials, split_ratio=split_ratio, std_type=std_type, perplexity=perplexity)
 
 
 if __name__ == '__main__':
-    dtype = "tsne-3d"
-    num_cpus = 38
-    for dataset in ['w7a']:
-        for method in ["c_svm", "b_c_svm", "lr", "b_lr", "svm_perf_lin", "spauc", "spam", "opt_auc_3d"]:
-            parallel_by_method_dataset(dtype=dtype, dataset=dataset, method=method, num_cpus=num_cpus)
+    test()

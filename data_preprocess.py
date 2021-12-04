@@ -32,7 +32,7 @@ spectf:             https://archive.ics.uci.edu/ml/datasets/Yeast
 ionosphere:         https://archive.ics.uci.edu/ml/datasets/ionosphere
 """
 
-root_path = "/nfs/nfs-davinci/baojian/data/aistats22-auc-opt/datasets/"
+root_path = "/data/auc-opt-datasets/datasets/"
 
 
 def get_real_data(dataset):
@@ -55,7 +55,8 @@ def get_real_data(dataset):
     return np.asarray(x_tr, dtype=np.float64), np.asarray(y_tr, dtype=np.float64)
 
 
-def get_tsne_data(dataset, dtype='3d'):
+def get_tsne_data(dataset, dtype, perplexity):
+    assert dtype == '3d' or dtype == '2d'
     if dtype == '3d':
         data = pkl.load(open(root_path + '%s/t_sne_3d_%s.pkl' % (dataset, dataset), 'rb'))
     elif dtype == "2d":
@@ -63,10 +64,8 @@ def get_tsne_data(dataset, dtype='3d'):
     else:
         print("error unknown data type")
         return 0
-    if dataset == 'fourclass':
-        key = ('original', 50)
-    else:
-        key = ('standard', 50)
+    # fourclass is 2d datasets, no need to do projection.
+    key = ('standard', perplexity) if dataset != 'fourclass' else ('original', perplexity)
     x_tr = data[key]['embeddings']
     y_tr = data[key]['y_tr']
     return np.asarray(x_tr), np.asarray(y_tr)
@@ -246,7 +245,7 @@ def draw_t_sne(data_name):
     plt.close()
 
 
-def get_data(dtype, dataset, num_trials, split_ratio, verbose=0):
+def get_data(dtype, dataset, num_trials, split_ratio, perplexity, verbose=0):
     if dataset == 'simu' or dataset == 'splice' or dataset == 'a9a' or dataset == 'breast_cancer' or \
             dataset == 'banana' or dataset == 'ecoli_imu' or dataset == 'mushrooms' or dataset == 'australian' or \
             dataset == 'spambase' or dataset == 'ionosphere' or dataset == 'fourclass' or \
@@ -267,9 +266,9 @@ def get_data(dtype, dataset, num_trials, split_ratio, verbose=0):
         if dtype == "real":
             x_tr, y_tr = get_real_data(dataset=dataset)
         elif dtype == "tsne-2d":
-            x_tr, y_tr = get_tsne_data(dataset=dataset, dtype="2d")
+            x_tr, y_tr = get_tsne_data(dataset=dataset, dtype="2d", perplexity=perplexity)
         elif dtype == "tsne-3d":
-            x_tr, y_tr = get_tsne_data(dataset=dataset, dtype="3d")
+            x_tr, y_tr = get_tsne_data(dataset=dataset, dtype="3d", perplexity=perplexity)
         else:
             print(f"unknown type of dataset.")
             return 0

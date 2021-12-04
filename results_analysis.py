@@ -7,72 +7,51 @@ import warnings
 import numpy as np
 from itertools import product
 import matplotlib.pyplot as plt
-from sklearn.metrics import roc_auc_score
-from sklearn.metrics import roc_curve
-from sklearn.metrics import accuracy_score
-from sklearn.metrics import log_loss
-from sklearn.metrics import f1_score
-from sklearn.metrics import precision_score
-from sklearn.metrics import recall_score
-from sklearn.linear_model import LogisticRegression
-from sklearn.svm import SVC
-from sklearn.linear_model import Perceptron
-from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.utils.extmath import softmax
-import matplotlib as mpl
-from matplotlib.colors import ListedColormap
-import multiprocessing
 import pickle as pkl
 from scipy.stats import ttest_ind
 from sklearn.metrics import adjusted_rand_score
 
-root_path = "/home/baojian/data/aistats22-auc-opt/datasets/"
+root_path = "/data/auc-opt-datasets/datasets/"
 
 
-def get_summarized_data(dataset_name):
+def get_summarized_data(dataset_name, dtype, num_trials, perplexity):
     results = dict()
     dataset_list = [dataset_name]
-    tag_list, num_trials = ['tsne-3d'], 50
     for dataset in dataset_list:
         results[dataset] = dict()
-        for tag in tag_list:
-            if tag == 'real':
-                method_list = ['c_svm', 'b_c_svm', 'lr', 'b_lr', 'rbf_svm', 'b_rbf_svm', 'rf', 'b_rf',
-                               'spauc', 'spam', 'gb', 'rank_boost', 'adaboost', 'svm_perf_lin', 'svm_perf_rbf']
-            elif tag == 'tsne-2d':
-                method_list = ['c_svm', 'b_c_svm', 'lr', 'b_lr', 'rbf_svm', 'b_rbf_svm', 'rf', 'b_rf', 'opt_auc',
-                               'spauc', 'spam', 'gb', 'rank_boost', 'adaboost', 'svm_perf_lin', 'svm_perf_rbf']
-            elif tag == 'tsne-3d':
-                method_list = ['c_svm', 'b_c_svm', 'lr', 'b_lr', 'opt_auc_3d', 'spauc', 'spam', 'svm_perf_lin']
-            else:
-                return 0
-            results[dataset][tag] = dict()
-            for trial_i in range(num_trials):
-                results[dataset][tag][trial_i] = dict()
-                for method in method_list:
-                    results[dataset][tag][trial_i][method] = dict()
-
-    for dataset in dataset_list:
-        for tag in tag_list:
-            if tag == 'real':
-                method_list = ['c_svm', 'b_c_svm', 'lr', 'b_lr', 'rbf_svm', 'b_rbf_svm', 'rf', 'b_rf',
-                               'spauc', 'spam', 'gb', 'rank_boost', 'adaboost', 'svm_perf_lin', 'svm_perf_rbf']
-            elif tag == 'tsne-2d':
-                method_list = ['c_svm', 'b_c_svm', 'lr', 'b_lr', 'rbf_svm', 'b_rbf_svm', 'rf', 'b_rf', 'opt_auc',
-                               'spauc', 'spam', 'gb', 'rank_boost', 'adaboost', 'svm_perf_lin', 'svm_perf_rbf']
-            elif tag == 'tsne-3d':
-                method_list = ['c_svm', 'b_c_svm', 'lr', 'b_lr', 'opt_auc_3d', 'spauc', 'spam', 'svm_perf_lin']
-            else:
-                return 0
+        if dtype == 'real':
+            method_list = ['c_svm', 'b_c_svm', 'lr', 'b_lr', 'rbf_svm', 'b_rbf_svm', 'rf', 'b_rf',
+                           'spauc', 'spam', 'gb', 'rank_boost', 'adaboost', 'svm_perf_lin', 'svm_perf_rbf']
+        elif dtype == 'tsne-2d':
+            method_list = ['c_svm', 'b_c_svm', 'lr', 'b_lr', 'opt_auc_2d', 'spauc', 'spam', 'svm_perf_lin']
+        elif dtype == 'tsne-3d':
+            method_list = ['c_svm', 'b_c_svm', 'lr', 'b_lr', 'opt_auc_3d', 'spauc', 'spam', 'svm_perf_lin']
+        else:
+            return 0
+        results[dataset][dtype] = dict()
+        for trial_i in range(num_trials):
+            results[dataset][dtype][trial_i] = dict()
             for method in method_list:
-                file = root_path + '%s/results_%s_%s_%s.pkl' % (dataset, tag, dataset, method)
-                if os.path.exists(file):
-                    re = pkl.load(open(file, 'rb'))
-                    print(dataset, tag, method)
-                    for trial_i in re:
-                        for label in ['tr', 'te1', 'te2', 'te3']:
-                            results[dataset][tag][trial_i][method][label] = re[trial_i][method][label]
-        file = root_path + '%s/results_all_%s.pkl' % (dataset, dataset)
+                results[dataset][dtype][trial_i][method] = dict()
+    for dataset in dataset_list:
+        if dtype == 'real':
+            method_list = ['c_svm', 'b_c_svm', 'lr', 'b_lr', 'rbf_svm', 'b_rbf_svm', 'rf', 'b_rf',
+                           'spauc', 'spam', 'gb', 'rank_boost', 'adaboost', 'svm_perf_lin', 'svm_perf_rbf']
+        elif dtype == 'tsne-2d':
+            method_list = ['c_svm', 'b_c_svm', 'lr', 'b_lr', 'opt_auc_2d', 'spauc', 'spam', 'svm_perf_lin']
+        elif dtype == 'tsne-3d':
+            method_list = ['c_svm', 'b_c_svm', 'lr', 'b_lr', 'opt_auc_3d', 'spauc', 'spam', 'svm_perf_lin']
+        else:
+            return 0
+        for method in method_list:
+            file = root_path + '%s/results_%s_%s_%s_%d.pkl' % (dataset, dtype, dataset, method, perplexity)
+            if os.path.exists(file):
+                re = pkl.load(open(file, 'rb'))
+                print(dataset, dtype, method)
+                for trial_i in re:
+                    for label in ['tr', 'te1', 'te2', 'te3']:
+                        results[dataset][dtype][trial_i][method][label] = re[trial_i][method][label]
+        file = root_path + '%s/all_results_%s_%s_%d.pkl' % (dataset, dtype, dataset, perplexity)
         pkl.dump(results, open(file, 'wb'))
 
 
@@ -614,21 +593,18 @@ def run_time_real():
                float(np.std(run_time_matrix[:, ind_method]))))
 
 
-def t_test(tag, list_datasets):
-    print(len(list_datasets))
-    method_list = ['c_svm', 'b_c_svm', 'lr', 'b_lr', 'svm_perf_lin', 'spauc', 'spam', 'opt_auc_3d']
+def t_test(list_datasets, method_list, num_trials, perplexity, dtype, significant_level, data_eval_type):
     tr_auc_matrix = []
-    num_trials = 50
     eff_range = range(0, num_trials)
     for ind, dataset in enumerate(list_datasets):
-        print(dataset)
-        results = pkl.load(open(root_path + '%s/results_all_%s.pkl' % (dataset, dataset), 'rb'))
+        results = pkl.load(open(root_path + '%s/all_results_%s_%s_%d.pkl' %
+                                (dataset, dtype, dataset, perplexity), 'rb'))
         list_vals = []
         for ind_method, method in enumerate(method_list):
-            list_vals.append([results[dataset]['tsne-3d'][_][method][tag]['auc'] for _ in eff_range])
+            list_vals.append([results[dataset][dtype][_][method][data_eval_type]['auc'] for _ in eff_range])
         tr_auc_matrix.append(list_vals)
     tr_auc_matrix = np.asarray(tr_auc_matrix)
-    t_test_matrix = np.zeros((8, 8))
+    t_test_matrix = np.zeros((len(method_list), len(method_list)))
     for ind, dataset in enumerate(list_datasets):
         for ind1, method1 in enumerate(method_list):
             for ind2, method2 in enumerate(method_list):
@@ -637,13 +613,8 @@ def t_test(tag, list_datasets):
                 stat, p_val = ttest_ind(a=tr_auc_matrix[ind][ind1], b=tr_auc_matrix[ind][ind2])
                 m1 = np.mean(tr_auc_matrix[ind][ind1])
                 m2 = np.mean(tr_auc_matrix[ind][ind2])
-                if p_val <= 0.05 and m1 > m2:
+                if p_val <= significant_level and m1 > m2:
                     t_test_matrix[ind1][ind2] += 1
-    for ind1, method1 in enumerate(method_list):
-        print('%15s' % method1, end=' ')
-        for ind2, method2 in enumerate(method_list):
-            print('%02d' % t_test_matrix[ind1][ind2], end=' ')
-        print('')
     return t_test_matrix
 
 
@@ -818,12 +789,21 @@ def main():
         'satimage_4', 'scene', 'seismic', 'sick_euthyroid', 'solar_flare_m0', 'spambase', 'spectf',
         'spectrometer', 'splice', 'svmguide3', 'thyroid_sick', 'us_crime', 'vehicle_bus', 'vehicle_saab',
         'vehicle_van', 'vowel_hid', 'w7a', 'wine_quality', 'yeast_cyt', 'yeast_me1', 'yeast_me2', 'yeast_ml8']
+    list_datasets = [
+        'abalone_19', 'abalone_7', 'arrhythmia_06', 'australian', 'banana', 'breast_cancer', 'cardio_3',
+        'car_eval_34', 'car_eval_4', 'coil_2000', 'ecoli_imu', 'fourclass', 'german', 'ionosphere',
+        'isolet', 'letter_a', 'letter_z', 'libras_move', 'oil',
+        'satimage_4', 'scene', 'seismic', 'sick_euthyroid', 'solar_flare_m0', 'spambase']
     print(len(list_datasets))
+    dtype, num_trials, perplexity, significant_level = 'tsne-2d', 200, 40, 0.05
     for dataset in list_datasets:
-        get_summarized_data(dataset_name=dataset)
+        get_summarized_data(dataset_name=dataset, dtype=dtype, num_trials=num_trials, perplexity=perplexity)
     method_title = ['SVM', 'B-SVM', 'LR', 'B-LR', 'SVM-Perf', 'SPAUC', 'SPAM', 'AUC-opt']
-    t_test_mat1 = t_test('tr', list_datasets=list_datasets)
-    t_test_mat2 = t_test('te1', list_datasets=list_datasets)
+    method_list = ['c_svm', 'b_c_svm', 'lr', 'b_lr', 'svm_perf_lin', 'spauc', 'spam', 'opt_auc_2d']
+    t_test_mat1 = t_test(list_datasets=list_datasets, method_list=method_list, num_trials=num_trials,
+                         perplexity=perplexity, dtype=dtype, significant_level=significant_level, data_eval_type="tr")
+    t_test_mat2 = t_test(list_datasets=list_datasets, method_list=method_list, num_trials=num_trials,
+                         perplexity=perplexity, dtype=dtype, significant_level=significant_level, data_eval_type="te1")
     for ind, (item1, item2) in enumerate(zip(t_test_mat1, t_test_mat2)):
         list_ = list(item1)
         list_.extend(item2)
@@ -847,13 +827,6 @@ def main():
         run_time_tsne(tag='tr')
     elif sys.argv[1] == 'run_time_real':
         run_time_real()
-    elif sys.argv[1] == 't_test-3d':
-        t_test_mat1 = t_test('tr')
-        t_test_mat2 = t_test('te1')
-        for item1, item2 in zip(t_test_mat1, t_test_mat2):
-            list_ = list(item1)
-            list_.extend(item2)
-            print(' & '.join([str(int(_)) for _ in list_]))
     elif sys.argv[1] == 't_test_real':
         t_test_mat1 = t_test_real('tr')
         t_test_mat2 = t_test_real('te1')
