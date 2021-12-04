@@ -155,3 +155,22 @@ def opt_auc_3d_algo(x_tr, y_tr, precision_eps=1e-15):
             set_k.append(point)
     w, opt_auc = open_hemisphere_3d(points=set_k)
     return w, opt_auc
+
+
+def opt_auc_3d_algo_reg(x_tr, y_tr, precision_eps=1e-15):
+    assert 3 == x_tr.shape[1]
+    x_tr = np.asarray(x_tr, dtype=np.float64)
+    posi_indices = [ind for ind, _ in enumerate(y_tr) if _ > 0.]
+    nega_indices = [ind for ind, _ in enumerate(y_tr) if _ < 0.]
+    set_k = []
+    for i in posi_indices:
+        for j in nega_indices:
+            point = x_tr[i] - x_tr[j]
+            if norm(point) <= precision_eps:
+                # ignore the co-linear pair
+                continue
+            point = point / norm(point)
+            set_k.append(point)
+    w1, opt_auc = open_hemisphere_3d(points=set_k)
+    w2, opt_auc = open_hemisphere_3d(points=set_k[::-1])
+    return w1, w2

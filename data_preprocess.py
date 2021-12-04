@@ -33,7 +33,8 @@ ionosphere:         https://archive.ics.uci.edu/ml/datasets/ionosphere
 """
 
 root_path = "/data/auc-opt-datasets/datasets/"
-
+# root_path = "/home/baojian/data/aistats22-auc-opt/datasets/"
+# root_path = "/data/auc-opt-datasets/datasets/"
 
 def get_real_data(dataset):
     x_tr, y_tr = [], []

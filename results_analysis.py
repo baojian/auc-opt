@@ -12,6 +12,7 @@ from scipy.stats import ttest_ind
 from sklearn.metrics import adjusted_rand_score
 
 root_path = "/data/auc-opt-datasets/datasets/"
+# root_path = "/home/baojian/data/aistats22-auc-opt/datasets/"
 
 
 def get_summarized_data(dataset_name, dtype, num_trials, perplexity):
@@ -26,6 +27,7 @@ def get_summarized_data(dataset_name, dtype, num_trials, perplexity):
             method_list = ['c_svm', 'b_c_svm', 'lr', 'b_lr', 'opt_auc_2d', 'spauc', 'spam', 'svm_perf_lin']
         elif dtype == 'tsne-3d':
             method_list = ['c_svm', 'b_c_svm', 'lr', 'b_lr', 'opt_auc_3d', 'spauc', 'spam', 'svm_perf_lin']
+            method_list = ['opt_auc_3d', 'opt_auc_3d_reg', 'b_lr']
         else:
             return 0
         results[dataset][dtype] = dict()
@@ -41,6 +43,7 @@ def get_summarized_data(dataset_name, dtype, num_trials, perplexity):
             method_list = ['c_svm', 'b_c_svm', 'lr', 'b_lr', 'opt_auc_2d', 'spauc', 'spam', 'svm_perf_lin']
         elif dtype == 'tsne-3d':
             method_list = ['c_svm', 'b_c_svm', 'lr', 'b_lr', 'opt_auc_3d', 'spauc', 'spam', 'svm_perf_lin']
+            method_list = ['opt_auc_3d', 'opt_auc_3d_reg', 'b_lr']
         else:
             return 0
         for method in method_list:
@@ -51,6 +54,11 @@ def get_summarized_data(dataset_name, dtype, num_trials, perplexity):
                 for trial_i in re:
                     for label in ['tr', 'te1', 'te2', 'te3']:
                         results[dataset][dtype][trial_i][method][label] = re[trial_i][method][label]
+                        print(label, re[trial_i][method][label]['auc'])
+            else:
+                print(file)
+            print('------vs------')
+        print('-------------')
         file = root_path + '%s/all_results_%s_%s_%d.pkl' % (dataset, dtype, dataset, perplexity)
         pkl.dump(results, open(file, 'wb'))
 
@@ -780,7 +788,7 @@ def t_test_real(tag):
     return t_test_matrix
 
 
-def main():
+def generate_results_2d():
     list_datasets = [
         'abalone_19', 'abalone_7', 'arrhythmia_06', 'australian', 'banana', 'breast_cancer', 'cardio_3',
         'car_eval_34', 'car_eval_4', 'coil_2000', 'ecoli_imu', 'fourclass', 'german', 'ionosphere',
@@ -789,12 +797,6 @@ def main():
         'satimage_4', 'scene', 'seismic', 'sick_euthyroid', 'solar_flare_m0', 'spambase', 'spectf',
         'spectrometer', 'splice', 'svmguide3', 'thyroid_sick', 'us_crime', 'vehicle_bus', 'vehicle_saab',
         'vehicle_van', 'vowel_hid', 'w7a', 'wine_quality', 'yeast_cyt', 'yeast_me1', 'yeast_me2', 'yeast_ml8']
-    list_datasets = [
-        'abalone_19', 'abalone_7', 'arrhythmia_06', 'australian', 'banana', 'breast_cancer', 'cardio_3',
-        'car_eval_34', 'car_eval_4', 'coil_2000', 'ecoli_imu', 'fourclass', 'german', 'ionosphere',
-        'isolet', 'letter_a', 'letter_z', 'libras_move', 'oil',
-        'satimage_4', 'scene', 'seismic', 'sick_euthyroid', 'solar_flare_m0', 'spambase']
-    print(len(list_datasets))
     dtype, num_trials, perplexity, significant_level = 'tsne-2d', 200, 40, 0.05
     for dataset in list_datasets:
         get_summarized_data(dataset_name=dataset, dtype=dtype, num_trials=num_trials, perplexity=perplexity)
@@ -812,9 +814,13 @@ def main():
         print('& ', end=' ')
         print(' & '.join([str(int(_)) if ind2 != ind else '-' for ind2, _ in enumerate(list_)]), end=" ")
         print('\\\\')
+
+
+def main():
+    dtype, num_trials, perplexity, significant_level = 'tsne-3d', 50, 50, 0.05
+    get_summarized_data(dataset_name='isolet', dtype=dtype, num_trials=num_trials, perplexity=perplexity)
     exit()
     if sys.argv[1] == 'sum_data':
-
         get_summarized_data(dataset_name=sys.argv[2])
         show_tr_auc_te_auc(dataset=sys.argv[2])
         show_tr_acc_f1_te_acc_f1(dataset=sys.argv[2])
