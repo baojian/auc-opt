@@ -8,7 +8,6 @@ import tempfile
 from itertools import product
 from functools import reduce
 import numpy as np
-from sklearn.exceptions import ConvergenceWarning
 from data_preprocess import get_data
 from sklearn.metrics import f1_score
 from sklearn.metrics import roc_auc_score
@@ -568,10 +567,10 @@ def run_algo_spauc_l2(para):
 
 def run_algo_svm_perf(para):
     data, trial_id, kernel, std_type, dtype = para
-    list_c, k_fold = np.asarray([2. ** _ for _ in np.arange(-20, 11, 2, dtype=float)]), 5
+    list_c, k_fold = np.asarray([2. ** _ for _ in np.arange(-10, 5, 2, dtype=float)]), 5
     method = 'svm_perf_lin' if kernel == 'linear' else 'svm_perf_rbf'
     if kernel == 'linear':
-        list_c = np.asarray([2. ** _ for _ in np.arange(-20, 11, 2, dtype=float)])
+        list_c = np.asarray([2. ** _ for _ in np.arange(-10, 5, 2, dtype=float)])
         if data['name'] == 'ecoli_imu':
             list_c = list_c[:11]  # too large C, the algorithm cannot stop.
         if data['name'] == 'spectrometer':
@@ -581,7 +580,7 @@ def run_algo_svm_perf(para):
     else:
         list_c = [1.]
         if data['name'] == 'ecoli_imu':
-            list_c = [0.001, 0.01, 0.1, 1.0, 10., 100.]
+            list_c = [0.001, 0.01, 0.1, 1.0, 10.]
         if data['name'] == 'australian':
             list_c = [2. ** _ for _ in range(8)]
         if data['name'] == 'fourclass':
@@ -1001,8 +1000,8 @@ def test():
         'satimage_4', 'scene', 'seismic', 'sick_euthyroid', 'solar_flare_m0', 'spambase', 'spectf',
         'spectrometer', 'splice', 'svmguide3', 'thyroid_sick', 'us_crime', 'vehicle_bus', 'vehicle_saab',
         'vehicle_van', 'vowel_hid', 'w7a', 'wine_quality', 'yeast_cyt', 'yeast_me1', 'yeast_me2', 'yeast_ml8']
-    dtype, num_trials, split_ratio, std_type, perplexity, num_cpus = "tsne-2d", 200, 0.5, 'StandardScaler', 30, 78
-    method_list = ["opt_auc_2d", "c_svm", "b_c_svm", "svm_perf_lin", "lr", "b_lr", "spauc", "spam"]
+    dtype, num_trials, split_ratio, std_type, perplexity, num_cpus = "tsne-2d", 100, 0.5, 'StandardScaler', 30, 78
+    method_list = ["opt_auc_2d", "c_svm", "b_c_svm", "lr", "b_lr", "spauc", "spam"]
     for dataset in list_datasets:
         for method in method_list:
             parallel_by_method_dataset(dtype=dtype, dataset=dataset, method=method, num_cpus=num_cpus,
