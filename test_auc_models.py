@@ -30,7 +30,7 @@ from sklearn.svm import SVC
 
 from auc_opt_3d import opt_auc_3d_algo
 
-root_path = "/home/baojian/data/aistats22-auc-opt/"
+root_path = "---"
 try:
     sys.path.append(os.getcwd())
     import libspam_l2

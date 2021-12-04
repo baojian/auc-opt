@@ -281,18 +281,4 @@ def find_the_significance():
 
 
 if __name__ == '__main__':
-    if False:
-        x = [1, 2, 3, 4, 5, 6]
-        y = [4, 5, 8, 14, 24, 19]
-        # create scatterplot
-        fig, ax = plt.subplots()
-        ax.scatter(x, y)
-        # add axis labels
-        ax.set_ylabel('Y-Axis Label', labelpad=-30)
-        ax.set_xlabel('X-Axis Label')
-        # adjust position of x-axis label
-        ax.yaxis.set_label_coords(.06, .7)
-        ax.xaxis.set_label_coords(.7, .06)
-        plt.show()
-        exit()
     toy_example()

@@ -4,8 +4,9 @@ import numpy as np
 from numpy.linalg import norm
 
 
-def project_3d_2d_coordinates(normal, points):
+def change_coordinates(normal, points):
     """
+    Change coordinates from 3d to 2d
     :param normal: the normal vector
     :param points: the points on this plane
     :return:
@@ -18,6 +19,22 @@ def project_3d_2d_coordinates(normal, points):
     coordinates = np.asarray([u, v], dtype=np.float64).T
     mapped_points = np.dot(points, coordinates)
     return mapped_points
+
+
+def change_coordinates_back(normal, w):
+    """
+    Change coordinates from 2d to 3d
+    :param normal: the normal vector
+    :param w: a 2d point
+    :return:
+    """
+    # project 2d points back to 3d.
+    uu = np.asarray([normal[1], -normal[0], 0.])
+    uu = uu / norm(uu)
+    vv = np.cross(uu, normal)
+    vv = vv / norm(vv)
+    w_3d = w[0] * uu + w[1] * vv
+    return w_3d
 
 
 def sorting_rays(list_rays: list, u0, r0):
@@ -44,8 +61,8 @@ def sorting_rays(list_rays: list, u0, r0):
     return list_rays
 
 
-def open_hemisphere_2d(points, sp, u, cp, precision_eps=1e-15):
-    points_2d = project_3d_2d_coordinates(normal=u, points=cp)
+def auc_opt_2d(points, sp, u, cp, precision_eps=1e-15):
+    points_2d = change_coordinates(normal=u, points=cp)
     rays = []
     u0 = points_2d[0]
     # 0 for negative and 1 for positive
@@ -72,12 +89,7 @@ def open_hemisphere_2d(points, sp, u, cp, precision_eps=1e-15):
         ap_val = aq_val + posi_val - nega_val
         if ap_val > max_a_val:
             max_a_val, opt_x = ap_val, np.asarray(pii)
-    # project 2d points back to 3d.
-    uu = np.asarray([u[1], -u[0], 0.])
-    uu = uu / norm(uu)
-    vv = np.cross(uu, u)
-    vv = vv / norm(vv)
-    opt_x = opt_x[0] * uu + opt_x[1] * vv
+    opt_x = change_coordinates_back(normal=u, w=opt_x)
     opt_auc = np.sum(np.array(np.dot(points, opt_x)) > 0., axis=0) / len(points)
     return opt_x, opt_auc
 
@@ -100,11 +112,11 @@ def open_hemisphere_3d(points: list, precision_eps=1e-15):
         u_norm = norm(u) ** 2.
         cp = [p - (np.dot(p, u) / u_norm) * u for p in points]
         sp = [1.] * len(points)
-        yu1, auc_val = open_hemisphere_2d(points, sp, u, cp)
+        yu1, auc_val = auc_opt_2d(points, sp, u, cp)
         if opt_auc < auc_val:
             opt_x, opt_auc = yu1, auc_val
         sp = [1. if np.dot(_, u) <= 0.0 else 0. for _ in points]
-        yu2, auc_val = open_hemisphere_2d(points, sp, u, cp)
+        yu2, auc_val = auc_opt_2d(points, sp, u, cp)
         if opt_auc < auc_val:
             opt_x, opt_auc = yu2, auc_val
             epsilon = np.infty
